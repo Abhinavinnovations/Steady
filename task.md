@@ -78,3 +78,12 @@
 1. Database question: no code change needed — DB already live (Turso libsql + Drizzle, $0). Wrote `/home/user/steady/database-guide.md`: maps the user's Supabase plan 1:1 to existing schema (users→user+profiles, plan lock→commitments, completions, streaks computed live, partners+nudges), explains RLS-equivalent (authed oRPC scoped by context.user.id), db:push/generate/migrate workflow, bun inspect script, phase-in list.
 2. Resumable timer (`packages/mobile/app/timer/[taskId].tsx` rewritten): remaining seconds persisted to AsyncStorage keyed `steady.timer.<taskId>.<localDate>` (localDate from today.get). Saves on pause/stop/unmount + 5s checkpoint during ticking; cleared on natural finish; stale prior-day keys for the task removed on open; "Resumed — X already done today" hint shown when resuming. New day = fresh full duration.
 - Verified: mobile tsc clean, lint clean, build clean. E2E on :4300 (Maya, new day Sept 9, 0/4): started 10-min "Drink 2L water", ran ~20s, stop → reopened at 09:24/10:00 with resume hint + partial progress bar.
+
+## Round 6 — Full code + DB control (user request)
+1. Admin DB console (key-gated, web `/admin`):
+   - New `packages/web/src/api/routes/admin.ts` — oRPC on `base`: admin.tables (names+counts), admin.rows (validated table, newest-first, paginated 50/200 cap), admin.query (raw SQL via db.run(sql.raw()), 500-row cap, returns columns/rows/rowsAffected/ms). Key checked vs process.env.ADMIN_KEY.
+   - New `packages/web/src/web/pages/admin.tsx` (dark Steady style, inline styles) + `queries/admin.ts`; route in app.tsx. Key gate stores key in localStorage `steady.adminKey`; Lock console clears it.
+   - `ADMIN_KEY=steady-admin-2dc79136ddccec50` in root .env. GOTCHA: .env had no trailing newline — first append glued onto RUNABLE_URL line; fixed.
+   - Verified E2E on :4200/admin — wrong key error, 13 tables with counts, row browser scrolls, Run SQL returned 5 rows/235ms grid.
+2. GitHub: repo git init -b main, identity Abhinavinnovations, initial commit 2aa757e (140 files, .env NOT committed — .gitignore covers it; only .env.template committed). PUSH PENDING: user hasn't submitted PAT via ask_secrets (two form attempts went unanswered). Once token lands in /home/user/.secrets/github.env: create repo via POST /user/repos, push with token remote, never commit the token.
+3. database-guide.md: added "Admin console" section (URL, key, capabilities, no-undo warning, rotation) + "GitHub workflow" section (clone/edit/push, user pushes → I pull; I commit+push after each round).

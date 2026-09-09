@@ -87,3 +87,47 @@ console.table(r.rows);'
 - Push reminders at each task's reminder time (expo-notifications, free)
 - Streak/leaderboard snapshot tables — only when live queries measurably slow down
 - Email sending is wired (Resend, free tier 100/day) but needs `RESEND_API_KEY` in `.env` — currently emails log-and-skip
+
+## Admin console (browse + run SQL from your browser)
+
+Open **https://steady-7wy0t47-preview-4200.runable.site/admin** and paste the key:
+
+```
+steady-admin-2dc79136ddccec50
+```
+
+What you get:
+
+- **Tables sidebar** — every table with a live row count
+- **Row browser** — click a table, newest rows first, paginated 50 at a time (‹ › buttons)
+- **Run SQL** — full control: `SELECT`, `UPDATE`, `DELETE`, `ALTER` all work. Results cap at 500 rows; each run shows rows returned, rows affected, and query time. **There is no undo** — it's the live database, so read before you write
+- **Lock console** — clears the key from that browser (it's stored locally, never in a URL)
+
+The key lives in the root `.env` as `ADMIN_KEY`. Rotate it there any time; the
+console asks for the new one on next visit. The console works in production too
+(same `/admin` path once deployed).
+
+When to use which: the **console** for looking at data and quick fixes; the
+**Bun script + db:push workflow** above for schema changes and anything you want
+in version control.
+
+## GitHub workflow (co-managing the code)
+
+The repo lives at **https://github.com/Abhinavinnovations/steady**.
+
+Your side:
+
+```bash
+git clone https://github.com/Abhinavinnovations/steady.git
+cd steady && bun install
+# edit whatever you like
+git add -A && git commit -m "what changed" && git push
+```
+
+The real `.env` (DB credentials, admin key) is git-ignored on purpose — copy
+`.env.template` to `.env` and I can share values whenever you want to run it
+fully outside Runable.
+
+My side: after you push, tell me in chat and I run `git pull` before touching
+anything. After each round I finish, I commit and push too — so `git pull`
+before you start editing, and we won't collide.
