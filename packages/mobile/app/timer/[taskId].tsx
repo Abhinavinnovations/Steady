@@ -15,13 +15,20 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useToday } from "@/queries/steady";
+import { useTodos, useToggleTodo } from "@/queries/todos";
+import { cancelReminder, todoReminderId } from "@/lib/reminders";
 
 /**
  * Full-screen focus timer: a task-matched backdrop, a big countdown from the
- * task's assigned duration, pause / resume / stop. On natural finish it takes
- * you straight back to Today with the note sheet open for that task.
+ * task's assigned duration, pause / resume / stop.
  *
- * Progress persists per task per local day: stop a 60-min task at 40:00 left
+ * Works for both kinds of work:
+ * - Consistent tasks (`/timer/<id>`): natural finish goes back to Today with
+ *   the note sheet open — the streak still demands its one line.
+ * - To-dos (`/timer/<id>?type=todo`): natural finish just checks the to-do
+ *   off. Casual list, no note required.
+ *
+ * Progress persists per item per local day: stop a 60-min task at 40:00 left
  * and reopening it later the same day resumes from 40:00. A new day (or a
  * natural finish) resets to the full duration.
  */
@@ -60,28 +67,47 @@ function fmt(totalSeconds: number) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-/** Remaining-seconds storage key, scoped to one task on one local day. */
+/**
+ * Remaining-seconds storage key, scoped to one item on one local day.
+ * To-dos get a `t` marker so ids never collide with consistent tasks.
+ */
 const KEY_PREFIX = "steady.timer.";
-function storageKey(taskId: number, localDay: string) {
-  return `${KEY_PREFIX}${taskId}.${localDay}`;
+function storageKey(kind: "task" | "todo", id: number, localDay: string) {
+  return `${KEY_PREFIX}${kind === "todo" ? "t" : ""}${id}.${localDay}`;
 }
 
 export default function TimerScreen() {
   useKeepAwake();
   const colors = useColors();
   const router = useRouter();
-  const { taskId } = useLocalSearchParams<{ taskId: string }>();
+  const { taskId, type } = useLocalSearchParams<{
+    taskId: string;
+    type?: string;
+  }>();
+  const isTodo = type === "todo";
   const today = useToday();
+  const todos = useTodos();
+  const toggleTodo = useToggleTodo();
 
-  const task = useMemo(
-    () => today.data?.tasks.find((t) => String(t.id) === String(taskId)),
-    [today.data, taskId],
-  );
+  const item = useMemo(() => {
+    if (isTodo) {
+      const t = todos.data?.todos.find((x) => String(x.id) === String(taskId));
+      if (!t || t.completedAt) return undefined;
+      return { id: t.id, title: t.title, durationMinutes: t.durationMinutes };
+    }
+    const t = today.data?.tasks.find((x) => String(x.id) === String(taskId));
+    if (!t) return undefined;
+    return { id: t.id, title: t.title, durationMinutes: t.durationMinutes };
+  }, [isTodo, todos.data, today.data, taskId]);
 
-  const localDay = today.data?.localDate ?? null;
-  const storeKey = task && localDay ? storageKey(task.id, localDay) : null;
+  const sourceReady = isTodo ? todos.isSuccess : today.isSuccess;
+  const localDay =
+    (isTodo ? todos.data?.today : today.data?.localDate) ?? null;
+  const keyMarker = isTodo ? "t" : "";
+  const storeKey =
+    item && localDay ? storageKey(isTodo ? "todo" : "task", item.id, localDay) : null;
 
-  const totalSeconds = (task?.durationMinutes ?? 0) * 60;
+  const totalSeconds = (item?.durationMinutes ?? 0) * 60;
   const [remaining, setRemaining] = useState<number | null>(null);
   const [resumedFrom, setResumedFrom] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
@@ -103,10 +129,10 @@ export default function TimerScreen() {
     [storeKey, totalSeconds],
   );
 
-  // Arm the countdown once the task is known — resuming today's saved
+  // Arm the countdown once the item is known — resuming today's saved
   // progress when there is any.
   useEffect(() => {
-    if (!task || !storeKey || remaining !== null || totalSeconds <= 0) return;
+    if (!item || !storeKey || remaining !== null || totalSeconds <= 0) return;
     let cancelled = false;
     void (async () => {
       let start = totalSeconds;
@@ -116,10 +142,11 @@ export default function TimerScreen() {
         if (Number.isFinite(saved) && saved > 0 && saved < totalSeconds) {
           start = Math.round(saved);
         }
-        // Drop stale keys from earlier days for this task.
+        // Drop stale keys from earlier days for this item.
         const all = await AsyncStorage.getAllKeys();
         const stale = all.filter(
-          (k) => k.startsWith(`${KEY_PREFIX}${task.id}.`) && k !== storeKey,
+          (k) =>
+            k.startsWith(`${KEY_PREFIX}${keyMarker}${item.id}.`) && k !== storeKey,
         );
         if (stale.length > 0) await AsyncStorage.multiRemove(stale);
       } catch {
@@ -134,7 +161,7 @@ export default function TimerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [task, storeKey, remaining, totalSeconds]);
+  }, [item, storeKey, remaining, totalSeconds, keyMarker]);
 
   // Tick.
   const armed = remaining !== null;
@@ -163,7 +190,9 @@ export default function TimerScreen() {
     };
   }, [persist]);
 
-  // Natural finish → clear saved progress, back to Today with the note sheet.
+  // Natural finish → clear saved progress, then:
+  // consistent task = back to Today with the note sheet;
+  // to-do = check it off and go back. No note, no ceremony.
   useEffect(() => {
     if (remaining === 0 && !finishedRef.current) {
       finishedRef.current = true;
@@ -176,9 +205,18 @@ export default function TimerScreen() {
       } catch {
         // fine
       }
-      router.replace({ pathname: "/(tabs)", params: { note: String(taskId) } });
+      if (isTodo && item) {
+        void cancelReminder(todoReminderId(item.id));
+        toggleTodo.mutate({ id: item.id, done: true });
+        router.replace("/(tabs)");
+      } else {
+        router.replace({
+          pathname: "/(tabs)",
+          params: { note: String(taskId) },
+        });
+      }
     }
-  }, [remaining, router, taskId, storeKey]);
+  }, [remaining, router, taskId, storeKey, isTodo, item, toggleTodo]);
 
   function togglePause() {
     if (remaining === null) return;
@@ -196,14 +234,15 @@ export default function TimerScreen() {
     router.back();
   }
 
-  // Task missing (already completed elsewhere / bad id / no duration) — bail out.
+  // Item missing (already completed elsewhere / bad id / no duration) — bail out.
   useEffect(() => {
-    if (today.isSuccess && (!task || !task.durationMinutes)) {
+    if (finishedRef.current) return;
+    if (sourceReady && (!item || !item.durationMinutes)) {
       router.replace("/(tabs)");
     }
-  }, [today.isSuccess, task, router]);
+  }, [sourceReady, item, router]);
 
-  if (!task || totalSeconds === 0) {
+  if (!item || totalSeconds === 0) {
     return <View style={{ flex: 1, backgroundColor: "#101018" }} />;
   }
 
@@ -212,7 +251,7 @@ export default function TimerScreen() {
 
   return (
     <ImageBackground
-      source={imageForTitle(task.title)}
+      source={imageForTitle(item.title)}
       resizeMode="cover"
       style={{ flex: 1, backgroundColor: "#101018" }}
     >
@@ -236,7 +275,7 @@ export default function TimerScreen() {
                 textTransform: "uppercase",
               }}
             >
-              Focus
+              {isTodo ? "To-do" : "Focus"}
             </Text>
             <Text
               style={{
@@ -246,7 +285,7 @@ export default function TimerScreen() {
                 fontSize: 22,
               }}
             >
-              {task.title}
+              {item.title}
             </Text>
           </View>
         </View>

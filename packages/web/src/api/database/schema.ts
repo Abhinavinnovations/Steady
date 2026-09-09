@@ -62,11 +62,72 @@ export const tasks = sqliteTable(
     durationMinutes: integer("duration_minutes"),
     /** Local date (YYYY-MM-DD) the task becomes active — days before this don't require it. */
     startDate: text("start_date").notNull(),
+    /** Optional user-defined category. */
+    categoryId: integer("category_id").references(() => categories.id, {
+      onDelete: "set null",
+    }),
+    /** Optional time of day "HH:mm" (user's local clock) the task is planned for. */
+    scheduledTime: text("scheduled_time"),
+    /** Fire a local reminder notification at scheduledTime (device-side). */
+    reminderEnabled: integer("reminder_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
   },
   (t) => [index("tasks_user_month").on(t.userId, t.month)],
+);
+
+/** User-defined task categories (work, study, wishlist, ...) — never hardcoded. */
+export const categories = sqliteTable(
+  "categories",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("categories_user_name").on(t.userId, t.name)],
+);
+
+/**
+ * Temporary tasks ("today's tasks") — casual todos, fully deletable, never part
+ * of streaks, badges or leaderboards. They stay on the list until done or deleted.
+ */
+export const todos = sqliteTable(
+  "todos",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** Optional focus-timer duration in minutes (same timer as consistent tasks). */
+    durationMinutes: integer("duration_minutes"),
+    /** Local date "YYYY-MM-DD" the todo is planned for (defaults to today). */
+    dueDate: text("due_date").notNull(),
+    /** Optional time of day "HH:mm". */
+    scheduledTime: text("scheduled_time"),
+    reminderEnabled: integer("reminder_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    categoryId: integer("category_id").references(() => categories.id, {
+      onDelete: "set null",
+    }),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("todos_user_due").on(t.userId, t.dueDate),
+    index("todos_user_open").on(t.userId, t.completedAt),
+  ],
 );
 
 export const completions = sqliteTable(

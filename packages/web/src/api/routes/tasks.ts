@@ -60,11 +60,33 @@ export const tasks = {
         title: z.string().trim().min(2).max(80),
         /** Optional planned minutes for the focus timer (5 min – 8 h). */
         durationMinutes: z.number().int().min(5).max(480).optional(),
+        /** Optional user category. */
+        categoryId: z.number().int().optional(),
+        /** Optional planned time of day "HH:mm" (24h, user's local clock). */
+        scheduledTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+          .optional(),
+        /** Local reminder notification at scheduledTime. */
+        reminderEnabled: z.boolean().optional(),
       }),
     )
     .handler(async ({ context, input }) => {
       const p = await requireProfile(context.user.id);
       const month = localMonth(p.timezone);
+      if (input.categoryId != null) {
+        const [c] = await db
+          .select({ id: schema.categories.id })
+          .from(schema.categories)
+          .where(
+            and(
+              eq(schema.categories.id, input.categoryId),
+              eq(schema.categories.userId, context.user.id),
+            ),
+          );
+        if (!c)
+          throw new ORPCError("BAD_REQUEST", { message: "Unknown category" });
+      }
       const existing = await db
         .select({ id: schema.tasks.id })
         .from(schema.tasks)
@@ -86,9 +108,76 @@ export const tasks = {
           title: input.title.trim(),
           durationMinutes: input.durationMinutes ?? null,
           startDate: localDate(p.timezone),
+          categoryId: input.categoryId ?? null,
+          scheduledTime: input.scheduledTime ?? null,
+          reminderEnabled: input.reminderEnabled ?? false,
         })
         .returning();
       return task;
+    }),
+
+  /**
+   * Edit a task's schedule/category/timer — the lock is on EXISTENCE, not settings.
+   * Title never changes after the month is confirmed (that would be a stealth swap).
+   */
+  update: authed
+    .input(
+      z.object({
+        id: z.number(),
+        durationMinutes: z.number().int().min(5).max(480).nullable().optional(),
+        categoryId: z.number().int().nullable().optional(),
+        scheduledTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+          .nullable()
+          .optional(),
+        reminderEnabled: z.boolean().optional(),
+      }),
+    )
+    .handler(async ({ context, input }) => {
+      await requireProfile(context.user.id);
+      const [task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(
+          and(
+            eq(schema.tasks.id, input.id),
+            eq(schema.tasks.userId, context.user.id),
+          ),
+        );
+      if (!task) throw new ORPCError("NOT_FOUND");
+      if (input.categoryId != null) {
+        const [c] = await db
+          .select({ id: schema.categories.id })
+          .from(schema.categories)
+          .where(
+            and(
+              eq(schema.categories.id, input.categoryId),
+              eq(schema.categories.userId, context.user.id),
+            ),
+          );
+        if (!c)
+          throw new ORPCError("BAD_REQUEST", { message: "Unknown category" });
+      }
+      const [updated] = await db
+        .update(schema.tasks)
+        .set({
+          ...(input.durationMinutes !== undefined
+            ? { durationMinutes: input.durationMinutes }
+            : {}),
+          ...(input.categoryId !== undefined
+            ? { categoryId: input.categoryId }
+            : {}),
+          ...(input.scheduledTime !== undefined
+            ? { scheduledTime: input.scheduledTime }
+            : {}),
+          ...(input.reminderEnabled !== undefined
+            ? { reminderEnabled: input.reminderEnabled }
+            : {}),
+        })
+        .where(eq(schema.tasks.id, task.id))
+        .returning();
+      return updated;
     }),
 
   /** Remove a task — ONLY while the month is still a draft (not confirmed). */

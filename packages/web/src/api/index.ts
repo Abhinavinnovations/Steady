@@ -11,6 +11,8 @@ import { leaderboard } from "./routes/leaderboard";
 import { badges } from "./routes/badges";
 import { accountability } from "./routes/accountability";
 import { admin } from "./routes/admin";
+import { categories } from "./routes/categories";
+import { todos } from "./routes/todos";
 
 export const router = {
   ping,
@@ -23,6 +25,8 @@ export const router = {
   badges,
   accountability,
   admin,
+  categories,
+  todos,
 };
 
 export type AppRouter = typeof router;

@@ -48,6 +48,10 @@ export function DurationWheel({
   const scheme = useColorScheme();
   const listRef = useRef<FlatList<number | null>>(null);
   const indexRef = useRef(Math.max(0, DURATION_STEPS.indexOf(value)));
+  // While a programmatic sync is in flight, scroll events are echoes of old
+  // positions (mount/initialScrollIndex), not user intent — ignore them until
+  // the wheel reaches the target, or re-apply if the list wasn't ready yet.
+  const pendingRef = useRef<number | null>(null);
   const player = useAudioPlayer(tickSource);
 
   useEffect(() => {
@@ -55,10 +59,21 @@ export function DurationWheel({
     const idx = Math.max(0, DURATION_STEPS.indexOf(value));
     if (idx !== indexRef.current) {
       indexRef.current = idx;
+      pendingRef.current = idx;
       listRef.current?.scrollToOffset({
         offset: idx * ITEM_H,
         animated: false,
       });
+      const t = setTimeout(() => {
+        if (pendingRef.current !== null) {
+          listRef.current?.scrollToOffset({
+            offset: pendingRef.current * ITEM_H,
+            animated: false,
+          });
+          pendingRef.current = null;
+        }
+      }, 150);
+      return () => clearTimeout(t);
     }
   }, [value]);
 
@@ -82,6 +97,10 @@ export function DurationWheel({
         DURATION_STEPS.length - 1,
         Math.max(0, Math.round(e.nativeEvent.contentOffset.y / ITEM_H)),
       );
+      if (pendingRef.current !== null) {
+        if (idx === pendingRef.current) pendingRef.current = null;
+        return;
+      }
       if (idx !== indexRef.current) {
         indexRef.current = idx;
         tick();

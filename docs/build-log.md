@@ -92,3 +92,23 @@ Tasks could be added mid-month via API but there was no UI. Added `add-task-shee
 - **Timezone-anchored days** — every "today" calculation uses the profile timezone, so streaks and misses are correct for the user, not the server.
 - **Typed end-to-end** — Drizzle schema → oRPC procedures → typed client → TanStack Query hooks → screens. A schema change that breaks a screen fails `tsc`, not production.
 - **Verified every round** — each round ends with `tsc` + lint + `bun run build` clean, plus a live end-to-end pass in the running app (real signups, real DB rows, screenshots) before delivery.
+
+## Round 7 (Part 1) — Today split: consistent tasks + to-dos, categories, schedules
+
+The Today page is now two lists with different contracts:
+
+**Consistent tasks** (top) — the month-locked ones. Only these count for the ring, streaks, and rankings. New per-task settings: a daily time, a local reminder, an optional category, and focus time — all editable any time via the ⋮ menu. The title stays locked once the month is confirmed (same stealth-swap prevention as before; the edit sheet shows it as a fixed header, not an input).
+
+**To-dos** (below, "no streak, no pressure") — casual, temporary items. Date + optional time + optional reminder, no repeat, deletable any time, no note on completion, and they never touch streaks or leaderboards. They stay on the list until done or deleted — no midnight expiry. To-dos due later than today are stored but kept off the Today list (a Calendar view is coming next).
+
+**Categories** — user-created, never hardcoded, shared by both lists (max 20). Filter chips appear above the lists only when categories exist; "All" is the default. Create inline from either sheet; long-press a chip to delete — items keep existing and just lose the label (set-null in both tables, enforced in the API since SQLite ALTER TABLE can't retrofit the FK clause).
+
+**Reminders** — `expo-notifications` *local* notifications: scheduled on-device, zero servers, zero cost. Daily triggers for consistent tasks, one-shot date triggers for to-dos. On web they're a silent no-op (browsers can't schedule OS notifications from a preview) — the sheets say so inline.
+
+**Timers for to-dos** — the same full-screen resumable timer now takes `?type=todo`: separate storage key, and a natural finish checks the to-do off automatically — no note, since notes belong to the consistent list.
+
+Two bugs found by end-to-end testing, worth recording:
+- **Sheet state wipe** — both add/edit sheets reset their fields in an effect keyed on the `editing` prop, which is a fresh object every parent render. Any background query refetch while a sheet was open silently reverted in-progress edits (a category pick vanished before save). Fix: reset only on the closed→open transition.
+- **Missing FK in live DDL** — `tasks.category_id` was added with `ALTER TABLE ADD COLUMN`, which in SQLite can't carry the `ON DELETE SET NULL` clause the schema declares. Category deletes nulled to-dos (fresh table, real FK) but not tasks. Fix: the API nulls both tables explicitly before deleting — correct regardless of FK state.
+
+As always: `tsc` + lint + `bun run build` clean, and every flow above exercised live against the real DB before delivery.

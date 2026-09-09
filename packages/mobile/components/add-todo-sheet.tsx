@@ -15,38 +15,42 @@ import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { SteadyButton } from "@/components/steady-button";
 import { DurationWheel } from "@/components/duration-wheel";
-import { CategoryPicker, TimeField } from "@/components/schedule-fields";
+import {
+  CategoryPicker,
+  DateChips,
+  TimeField,
+} from "@/components/schedule-fields";
 
-export type TaskSheetValues = {
+export type TodoSheetValues = {
   title: string;
   durationMinutes: number | null;
-  categoryId: number | null;
+  dueDate: string;
   scheduledTime: string | null;
   reminderEnabled: boolean;
+  categoryId: number | null;
 };
 
 type Props = {
   visible: boolean;
   submitting: boolean;
   error?: string | null;
-  /**
-   * When set, the sheet edits an existing task's settings.
-   * The title is locked — the commitment is on WHAT you do, settings are free.
-   */
-  editing?: (TaskSheetValues & { id: number }) | null;
-  onSubmit: (values: TaskSheetValues) => void;
+  /** Today's date in the user's timezone ("YYYY-MM-DD"). */
+  todayISO: string;
+  /** When set, the sheet edits an existing to-do (everything editable). */
+  editing?: (TodoSheetValues & { id: number }) | null;
+  onSubmit: (values: TodoSheetValues) => void;
   onClose: () => void;
 };
 
 /**
- * Add / edit sheet for consistent (month-locked) tasks. Commitments can only
- * grow — tasks added here count from today and can't be removed until next
- * month. Schedule, category, and focus time stay editable any time.
+ * Add / edit sheet for temporary to-dos — the casual list. No month lock,
+ * no streaks, deletable any time. Stays on the list until done or deleted.
  */
-export function AddTaskSheet({
+export function AddTodoSheet({
   visible,
   submitting,
   error,
+  todayISO,
   editing,
   onSubmit,
   onClose,
@@ -54,9 +58,10 @@ export function AddTaskSheet({
   const colors = useColors();
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState<number | null>(null);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [dueDate, setDueDate] = useState(todayISO);
   const [time, setTime] = useState<string | null>(null);
   const [reminder, setReminder] = useState(false);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
 
   // Reset only when the sheet transitions closed -> open. `editing` is a
   // fresh object every parent render, so depending on its identity would
@@ -66,15 +71,16 @@ export function AddTaskSheet({
     if (visible && !wasVisible.current) {
       setTitle(editing?.title ?? "");
       setDuration(editing?.durationMinutes ?? null);
-      setCategoryId(editing?.categoryId ?? null);
+      setDueDate(editing?.dueDate ?? todayISO);
       setTime(editing?.scheduledTime ?? null);
       setReminder(editing?.reminderEnabled ?? false);
+      setCategoryId(editing?.categoryId ?? null);
     }
     wasVisible.current = visible;
-  }, [visible, editing]);
+  }, [visible, editing, todayISO]);
 
   const isEdit = !!editing;
-  const valid = isEdit || title.trim().length >= 2;
+  const valid = title.trim().length >= 1;
 
   return (
     <Modal
@@ -107,7 +113,11 @@ export function AddTaskSheet({
             }}
           >
             <View
-              style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 14,
+              }}
             >
               <View style={{ flex: 1 }}>
                 <Text
@@ -119,7 +129,7 @@ export function AddTaskSheet({
                     textTransform: "uppercase",
                   }}
                 >
-                  {isEdit ? "Task settings" : "Raise the bar"}
+                  {isEdit ? "Edit to-do" : "Just for now"}
                 </Text>
                 <Text
                   style={{
@@ -129,7 +139,7 @@ export function AddTaskSheet({
                     fontSize: 18,
                   }}
                 >
-                  {isEdit ? editing.title : "Add a task"}
+                  {isEdit ? "Update to-do" : "Add a to-do"}
                 </Text>
               </View>
               <Pressable onPress={onClose} hitSlop={10}>
@@ -142,27 +152,27 @@ export function AddTaskSheet({
               keyboardShouldPersistTaps="handled"
             >
               <View style={{ gap: 14 }}>
-                {!isEdit ? (
-                  <TextInput
-                    value={title}
-                    onChangeText={setTitle}
-                    placeholder="e.g. Read 10 pages"
-                    placeholderTextColor={colors.mutedForeground}
-                    maxLength={80}
-                    editable={!submitting}
-                    style={{
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: 14,
-                      backgroundColor: colors.card,
-                      paddingHorizontal: 16,
-                      paddingVertical: 14,
-                      color: colors.foreground,
-                      fontFamily: Fonts?.sans,
-                      fontSize: 15,
-                    }}
-                  />
-                ) : null}
+                <TextInput
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder="e.g. Pick up the parcel"
+                  placeholderTextColor={colors.mutedForeground}
+                  maxLength={120}
+                  editable={!submitting}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 14,
+                    backgroundColor: colors.card,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    color: colors.foreground,
+                    fontFamily: Fonts?.sans,
+                    fontSize: 15,
+                  }}
+                />
+
+                <DateChips value={dueDate} onChange={setDueDate} todayISO={todayISO} />
 
                 <CategoryPicker value={categoryId} onChange={setCategoryId} />
 
@@ -209,7 +219,7 @@ export function AddTaskSheet({
                         fontSize: 14,
                       }}
                     >
-                      Daily reminder
+                      Remind me
                     </Text>
                     <Switch
                       value={reminder}
@@ -246,20 +256,17 @@ export function AddTaskSheet({
 
                 <SteadyButton
                   title={
-                    submitting
-                      ? "Saving..."
-                      : isEdit
-                        ? "Save changes"
-                        : "Add to this month"
+                    submitting ? "Saving..." : isEdit ? "Save changes" : "Add to-do"
                   }
                   disabled={!valid || submitting}
                   onPress={() =>
                     onSubmit({
                       title: title.trim(),
                       durationMinutes: duration,
-                      categoryId,
+                      dueDate,
                       scheduledTime: time,
                       reminderEnabled: time ? reminder : false,
+                      categoryId,
                     })
                   }
                 />
@@ -272,9 +279,8 @@ export function AddTaskSheet({
                     textAlign: "center",
                   }}
                 >
-                  {isEdit
-                    ? "Schedule and category are always editable. The task itself stays until next month."
-                    : "Counts from today. Tasks can be added any time — removing waits for next month."}
+                  To-dos don't touch your streak or rankings. They stay on the
+                  list until done or deleted.
                 </Text>
               </View>
             </ScrollView>
