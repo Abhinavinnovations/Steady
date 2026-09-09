@@ -58,6 +58,14 @@ export const tasks = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     month: text("month").notNull(), // "YYYY-MM"
     title: text("title").notNull(),
+    /**
+     * Per-task stakes. Basic = fully private. Challenge = your partner /
+     * accountability contact hears about it when the streak breaks, and the
+     * task ranks on the challenge leaderboard.
+     */
+    mode: text("mode", { enum: ["basic", "challenge"] })
+      .notNull()
+      .default("basic"),
     /** Optional planned duration in minutes — powers the full-screen focus timer. */
     durationMinutes: integer("duration_minutes"),
     /** Local date (YYYY-MM-DD) the task becomes active — days before this don't require it. */

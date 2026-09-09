@@ -13,7 +13,8 @@ const appUrl = () => process.env.WEBSITE_URL ?? "";
 
 /**
  * High-level status only — this is the privacy boundary.
- * A partner NEVER sees task titles, notes, or task counts.
+ * A partner NEVER sees task titles, notes, or task counts, and only
+ * CHALLENGE tasks count here — basic tasks stay fully private.
  */
 async function highLevelStatus(ownerId: string) {
   const [p] = await db
@@ -25,7 +26,12 @@ async function highLevelStatus(ownerId: string) {
   const today = localDate(p.timezone);
   const month = localMonth(p.timezone);
   const yesterday = shiftDay(today, -1);
-  const { statuses } = await computeDayStatuses(ownerId, p.timezone);
+  const { statuses } = await computeDayStatuses(
+    ownerId,
+    p.timezone,
+    400,
+    "challenge",
+  );
 
   let complete = 0;
   let missed = 0;
@@ -132,7 +138,7 @@ export const partners = {
     };
   }),
 
-  /** Invite one accountability partner by email. Challenge mode + verified email required. */
+  /** Invite one accountability partner by email. Verified email required. */
   invite: authed
     .input(z.object({ email: z.string().trim().toLowerCase().email().max(254) }))
     .handler(async ({ context, input }) => {
@@ -144,10 +150,6 @@ export const partners = {
         .where(eq(schema.profiles.userId, context.user.id));
       if (!p?.onboardedAt)
         throw new ORPCError("FORBIDDEN", { message: "Finish onboarding first" });
-      if (p.mode !== "challenge")
-        throw new ORPCError("FORBIDDEN", {
-          message: "Switch to Challenge mode to add a partner",
-        });
       if (input.email === context.user.email.toLowerCase())
         throw new ORPCError("BAD_REQUEST", {
           message: "You can't be your own partner",

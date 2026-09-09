@@ -14,6 +14,7 @@ import { useColors } from "@/hooks/use-colors";
 import { useThemeMode, type ThemeMode } from "@/lib/theme-context";
 import { authClient, clearToken } from "@/lib/auth";
 import { AccountabilitySetup } from "@/components/accountability-setup";
+import { PartnerSection } from "@/components/partner-section";
 import { useCurrentTasks, useProfile } from "@/queries/steady";
 import { usePartner } from "@/queries/partners";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
@@ -235,27 +236,39 @@ export default function ProfileScreen() {
               </View>
             </GlassCard>
 
-            {/* Accountability contact (challenge mode) */}
-            {p.mode === "challenge" ? (
-              <>
-                <Text
-                  style={{
-                    marginTop: 24,
-                    marginBottom: 10,
-                    color: colors.mutedForeground,
-                    fontFamily: Fonts?.semibold,
-                    fontSize: 11,
-                    letterSpacing: 1.2,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Accountability contact
-                </Text>
-                <GlassCard padding={16} radius={16}>
-                  <AccountabilitySetup showRemove />
-                </GlassCard>
-              </>
-            ) : null}
+            {/* Accountability contact — needed for challenge tasks */}
+            <Text
+              style={{
+                marginTop: 24,
+                marginBottom: 10,
+                color: colors.mutedForeground,
+                fontFamily: Fonts?.semibold,
+                fontSize: 11,
+                letterSpacing: 1.2,
+                textTransform: "uppercase",
+              }}
+            >
+              Accountability contact
+            </Text>
+            <GlassCard padding={16} radius={16}>
+              <AccountabilitySetup showRemove />
+            </GlassCard>
+
+            {/* Partner — challenge tasks only */}
+            <Text
+              style={{
+                marginTop: 24,
+                marginBottom: 10,
+                color: colors.mutedForeground,
+                fontFamily: Fonts?.semibold,
+                fontSize: 11,
+                letterSpacing: 1.2,
+                textTransform: "uppercase",
+              }}
+            >
+              Partner
+            </Text>
+            <PartnerSection />
 
             <Pressable
               onPress={signOut}

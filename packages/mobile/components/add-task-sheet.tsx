@@ -23,6 +23,7 @@ export type TaskSheetValues = {
   categoryId: number | null;
   scheduledTime: string | null;
   reminderEnabled: boolean;
+  mode: "basic" | "challenge";
 };
 
 type Props = {
@@ -57,6 +58,8 @@ export function AddTaskSheet({
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [time, setTime] = useState<string | null>(null);
   const [reminder, setReminder] = useState(false);
+  const [mode, setMode] = useState<"basic" | "challenge">("basic");
+  const [showModeInfo, setShowModeInfo] = useState(false);
 
   // Reset only when the sheet transitions closed -> open. `editing` is a
   // fresh object every parent render, so depending on its identity would
@@ -69,6 +72,8 @@ export function AddTaskSheet({
       setCategoryId(editing?.categoryId ?? null);
       setTime(editing?.scheduledTime ?? null);
       setReminder(editing?.reminderEnabled ?? false);
+      setMode(editing?.mode ?? "basic");
+      setShowModeInfo(false);
     }
     wasVisible.current = visible;
   }, [visible, editing]);
@@ -163,6 +168,88 @@ export function AddTaskSheet({
                     }}
                   />
                 ) : null}
+
+                {/* Mode — per task */}
+                <View style={{ gap: 8 }}>
+                  <View
+                    style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                  >
+                    <Ionicons
+                      name="flag-outline"
+                      size={13}
+                      color={colors.mutedForeground}
+                    />
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: Fonts?.semibold,
+                        fontSize: 11,
+                        letterSpacing: 1.2,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Mode
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      backgroundColor: colors.card,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      padding: 4,
+                    }}
+                  >
+                    {(["basic", "challenge"] as const).map((m) => (
+                      <Pressable
+                        key={m}
+                        disabled={submitting}
+                        onPress={() => {
+                          setMode(m);
+                          if (m === "challenge") setShowModeInfo(true);
+                        }}
+                        style={{
+                          flex: 1,
+                          paddingVertical: 8,
+                          borderRadius: 9,
+                          alignItems: "center",
+                          backgroundColor:
+                            mode === m ? colors.primary : "transparent",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color:
+                              mode === m
+                                ? colors.primaryForeground
+                                : colors.mutedForeground,
+                            fontFamily: Fonts?.medium,
+                            fontSize: 13,
+                            textTransform: "capitalize",
+                          }}
+                        >
+                          {m}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {mode === "challenge" && showModeInfo ? (
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: Fonts?.sans,
+                        fontSize: 12,
+                        lineHeight: 17,
+                      }}
+                    >
+                      Challenge means someone hears about it when you break your
+                      streak, and this task ranks on the challenge board. Basic
+                      stays fully private. Challenge needs a partner or verified
+                      contact — set one up in Profile first.
+                    </Text>
+                  ) : null}
+                </View>
 
                 <CategoryPicker value={categoryId} onChange={setCategoryId} />
 
@@ -260,6 +347,7 @@ export function AddTaskSheet({
                       categoryId,
                       scheduledTime: time,
                       reminderEnabled: time ? reminder : false,
+                      mode,
                     })
                   }
                 />

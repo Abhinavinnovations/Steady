@@ -67,6 +67,7 @@ export const today = {
           categoryId: t.categoryId,
           scheduledTime: t.scheduledTime,
           reminderEnabled: t.reminderEnabled,
+          mode: t.mode,
           completed: !!c,
           note: c?.note ?? null,
           completedAt: c?.createdAt ?? null,

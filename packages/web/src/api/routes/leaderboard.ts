@@ -41,7 +41,7 @@ export const leaderboard = {
       if (!me?.onboardedAt)
         throw new ORPCError("FORBIDDEN", { message: "Finish onboarding first" });
 
-      // Caller's own bucket (current month, their timezone) — used as default.
+      // Caller's own bucket on THIS board (their tasks of this mode, current month).
       const myMonth = localMonth(me.timezone);
       const myTasks = await db
         .select({ id: schema.tasks.id })
@@ -50,34 +50,38 @@ export const leaderboard = {
           and(
             eq(schema.tasks.userId, context.user.id),
             eq(schema.tasks.month, myMonth),
+            eq(schema.tasks.mode, input.mode),
           ),
         );
       const myBucket: Bucket = bucketOf(Math.max(myTasks.length, 1));
       const bucket: Bucket = input.bucket ?? myBucket;
 
-      // Everyone on this board: onboarded, same mode, not opted out.
+      // Boards are per-TASK mode: anyone with ≥1 task of this mode this month
+      // is on this board — one person can rank on both boards at once.
       const players = await db
         .select()
         .from(schema.profiles)
         .where(
           and(
-            eq(schema.profiles.mode, input.mode),
             eq(schema.profiles.leaderboardOptOut, false),
             isNotNull(schema.profiles.onboardedAt),
           ),
         )
         .limit(MAX_PLAYERS);
 
-      // Current-month task counts, one query for all players.
+      // Current-month task counts for THIS mode, one query for all players.
       const counts = new Map<string, number>();
       if (players.length > 0) {
         const taskRows = await db
           .select({ userId: schema.tasks.userId, month: schema.tasks.month })
           .from(schema.tasks)
           .where(
-            inArray(
-              schema.tasks.userId,
-              players.map((p) => p.userId),
+            and(
+              inArray(
+                schema.tasks.userId,
+                players.map((p) => p.userId),
+              ),
+              eq(schema.tasks.mode, input.mode),
             ),
           );
         const monthByUser = new Map(
@@ -100,6 +104,8 @@ export const leaderboard = {
         const { today, statuses } = await computeDayStatuses(
           p.userId,
           p.timezone,
+          400,
+          input.mode,
         );
         let start: string;
         if (input.range === "week") start = shiftDay(today, -6);

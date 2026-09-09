@@ -13,6 +13,8 @@ import { accountability } from "./routes/accountability";
 import { admin } from "./routes/admin";
 import { categories } from "./routes/categories";
 import { todos } from "./routes/todos";
+import { assistant } from "./routes/assistant";
+import { calendar } from "./routes/calendar";
 
 export const router = {
   ping,
@@ -27,6 +29,8 @@ export const router = {
   admin,
   categories,
   todos,
+  assistant,
+  calendar,
 };
 
 export type AppRouter = typeof router;

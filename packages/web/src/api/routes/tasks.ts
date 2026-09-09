@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { authed } from "../middleware/auth";
 import { db } from "../database";
@@ -14,6 +14,32 @@ async function requireProfile(userId: string) {
   if (!p?.onboardedAt)
     throw new ORPCError("FORBIDDEN", { message: "Finish onboarding first" });
   return p;
+}
+
+/**
+ * Challenge tasks need someone on the other end — a verified accountability
+ * contact or a partner (invited/accepted). Otherwise "challenge" is meaningless.
+ */
+async function requireChallengeBackstop(userId: string) {
+  const [contact] = await db
+    .select({ id: schema.accountabilityContacts.id })
+    .from(schema.accountabilityContacts)
+    .where(
+      and(
+        eq(schema.accountabilityContacts.userId, userId),
+        isNotNull(schema.accountabilityContacts.verifiedAt),
+      ),
+    );
+  if (contact) return;
+  const [partner] = await db
+    .select({ id: schema.partners.id, status: schema.partners.status })
+    .from(schema.partners)
+    .where(eq(schema.partners.ownerId, userId));
+  if (partner && partner.status !== "declined") return;
+  throw new ORPCError("FORBIDDEN", {
+    message:
+      "Challenge tasks need someone watching — set a partner or verified contact in Profile first",
+  });
 }
 
 async function getCommitment(userId: string, month: string) {
@@ -69,11 +95,15 @@ export const tasks = {
           .optional(),
         /** Local reminder notification at scheduledTime. */
         reminderEnabled: z.boolean().optional(),
+        /** basic = fully private; challenge = partner/contact hears about broken streaks. */
+        mode: z.enum(["basic", "challenge"]).optional(),
       }),
     )
     .handler(async ({ context, input }) => {
       const p = await requireProfile(context.user.id);
       const month = localMonth(p.timezone);
+      if (input.mode === "challenge")
+        await requireChallengeBackstop(context.user.id);
       if (input.categoryId != null) {
         const [c] = await db
           .select({ id: schema.categories.id })
@@ -111,6 +141,7 @@ export const tasks = {
           categoryId: input.categoryId ?? null,
           scheduledTime: input.scheduledTime ?? null,
           reminderEnabled: input.reminderEnabled ?? false,
+          mode: input.mode ?? "basic",
         })
         .returning();
       return task;
@@ -132,10 +163,13 @@ export const tasks = {
           .nullable()
           .optional(),
         reminderEnabled: z.boolean().optional(),
+        mode: z.enum(["basic", "challenge"]).optional(),
       }),
     )
     .handler(async ({ context, input }) => {
       await requireProfile(context.user.id);
+      if (input.mode === "challenge")
+        await requireChallengeBackstop(context.user.id);
       const [task] = await db
         .select()
         .from(schema.tasks)
@@ -174,6 +208,7 @@ export const tasks = {
           ...(input.reminderEnabled !== undefined
             ? { reminderEnabled: input.reminderEnabled }
             : {}),
+          ...(input.mode !== undefined ? { mode: input.mode } : {}),
         })
         .where(eq(schema.tasks.id, task.id))
         .returning();
@@ -270,6 +305,7 @@ export const tasks = {
           title: t.title,
           durationMinutes: t.durationMinutes,
           startDate: today,
+          mode: t.mode,
         })),
       );
     }

@@ -15,6 +15,8 @@ export async function computeDayStatuses(
   userId: string,
   timezone: string,
   daysBack = 400,
+  /** Restrict to one task mode — used for the per-mode leaderboards and partner views. */
+  mode?: "basic" | "challenge",
 ): Promise<{ today: string; statuses: Map<string, DayStatus> }> {
   const today = localDate(timezone);
   const firstDay = shiftDay(today, -daysBack);
@@ -26,7 +28,11 @@ export async function computeDayStatuses(
       startDate: schema.tasks.startDate,
     })
     .from(schema.tasks)
-    .where(eq(schema.tasks.userId, userId));
+    .where(
+      mode
+        ? and(eq(schema.tasks.userId, userId), eq(schema.tasks.mode, mode))
+        : eq(schema.tasks.userId, userId),
+    );
 
   const comps = await db
     .select({

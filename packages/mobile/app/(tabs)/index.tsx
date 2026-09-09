@@ -18,6 +18,7 @@ import { ProgressRing } from "@/components/progress-ring";
 import { NoteSheet } from "@/components/note-sheet";
 import { AddTaskSheet, type TaskSheetValues } from "@/components/add-task-sheet";
 import { AddTodoSheet, type TodoSheetValues } from "@/components/add-todo-sheet";
+import { VoiceSheet } from "@/components/voice-sheet";
 import { SteadyButton } from "@/components/steady-button";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
@@ -60,6 +61,7 @@ type TodayTask = {
   categoryId: number | null;
   scheduledTime: string | null;
   reminderEnabled: boolean;
+  mode: "basic" | "challenge";
 };
 
 type Todo = NonNullable<ReturnType<typeof useTodos>["data"]>["todos"][number];
@@ -111,6 +113,9 @@ export default function TodayScreen() {
   >(null);
   const [todoError, setTodoError] = useState<string | null>(null);
 
+  // Voice assistant sheet
+  const [voiceOpen, setVoiceOpen] = useState(false);
+
   async function submitTaskSheet(v: TaskSheetValues) {
     setTaskError(null);
     try {
@@ -122,6 +127,7 @@ export default function TodayScreen() {
           categoryId: v.categoryId,
           scheduledTime: v.scheduledTime,
           reminderEnabled: v.reminderEnabled,
+          mode: v.mode,
         });
         if (v.scheduledTime && v.reminderEnabled) {
           void scheduleTaskReminder(id, taskSheet.task.title, v.scheduledTime);
@@ -131,6 +137,7 @@ export default function TodayScreen() {
       } else {
         const task = await createTask.mutateAsync({
           title: v.title,
+          mode: v.mode,
           ...(v.durationMinutes ? { durationMinutes: v.durationMinutes } : {}),
           ...(v.categoryId ? { categoryId: v.categoryId } : {}),
           ...(v.scheduledTime ? { scheduledTime: v.scheduledTime } : {}),
@@ -364,6 +371,24 @@ export default function TodayScreen() {
               Today
             </Text>
           </View>
+          <Pressable
+            onPress={() => setVoiceOpen(true)}
+            hitSlop={6}
+            style={({ pressed }) => ({
+              width: 38,
+              height: 38,
+              borderRadius: 999,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              marginRight: 10,
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Ionicons name="mic-outline" size={19} color={colors.primary} />
+          </Pressable>
           <View
             style={{
               flexDirection: "row",
@@ -483,8 +508,8 @@ export default function TodayScreen() {
           </View>
         ) : null}
 
-        {/* Challenge users without a verified accountability contact */}
-        {profile.data?.mode === "challenge" &&
+        {/* Challenge tasks without a verified accountability contact */}
+        {d.tasks.some((t) => t.mode === "challenge") &&
         accountability.isSuccess &&
         !accountability.data?.verified ? (
           <GlassCard style={{ marginTop: 20 }} padding={16} radius={16}>
@@ -638,7 +663,7 @@ export default function TodayScreen() {
                   >
                     {t.title}
                   </Text>
-                  {t.scheduledTime || catName(t.categoryId) ? (
+                  {t.scheduledTime || catName(t.categoryId) || t.mode === "challenge" ? (
                     <View
                       style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
                     >
@@ -678,6 +703,26 @@ export default function TodayScreen() {
                         >
                           {catName(t.categoryId)}
                         </Text>
+                      ) : null}
+                      {t.mode === "challenge" ? (
+                        <View
+                          style={{
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                            borderRadius: 5,
+                            backgroundColor: colors.warning + "26",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: colors.warning,
+                              fontFamily: Fonts?.medium,
+                              fontSize: 10,
+                            }}
+                          >
+                            Challenge
+                          </Text>
+                        </View>
                       ) : null}
                     </View>
                   ) : null}
@@ -1116,6 +1161,7 @@ export default function TodayScreen() {
                 categoryId: taskSheet.task.categoryId,
                 scheduledTime: taskSheet.task.scheduledTime,
                 reminderEnabled: taskSheet.task.reminderEnabled,
+                mode: taskSheet.task.mode,
               }
             : null
         }
@@ -1142,6 +1188,11 @@ export default function TodayScreen() {
         }
         onSubmit={submitTodoSheet}
         onClose={() => setTodoSheet(null)}
+      />
+      <VoiceSheet
+        visible={voiceOpen}
+        todayISO={todos.data?.today ?? d.localDate}
+        onClose={() => setVoiceOpen(false)}
       />
     </SafeAreaView>
   );

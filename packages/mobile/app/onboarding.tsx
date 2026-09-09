@@ -132,6 +132,9 @@ export default function OnboardingScreen() {
       await createTask.mutateAsync({
         title: t,
         durationMinutes: duration ?? undefined,
+        // Tasks inherit the mode picked during onboarding; rollover re-entry
+        // (?step=tasks) defaults to basic — editable any time from Today.
+        mode: mode ?? "basic",
       });
       setTitle("");
       setDuration(null);

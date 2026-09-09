@@ -112,3 +112,19 @@ Two bugs found by end-to-end testing, worth recording:
 - **Missing FK in live DDL** — `tasks.category_id` was added with `ALTER TABLE ADD COLUMN`, which in SQLite can't carry the `ON DELETE SET NULL` clause the schema declares. Category deletes nulled to-dos (fresh table, real FK) but not tasks. Fix: the API nulls both tables explicitly before deleting — correct regardless of FK state.
 
 As always: `tsc` + lint + `bun run build` clean, and every flow above exercised live against the real DB before delivery.
+
+## Round 7 (Part 2) — voice add, Calendar tab, per-task challenge mode
+
+**Voice add** — a mic button on Today opens a "Just say it" sheet: speak (or type — there's always a text fallback) something like *"add gym at 4pm for an hour, daily"* or *"buy milk tomorrow at 6pm"*, and the AI turns it into a draft card — kind (consistent task vs one-off to-do), title, time, duration, date, reminder, even an existing category if one clearly fits. You confirm before anything is created. Parsing happens server-side through the built-in AI gateway (`google/gemini-3-flash`, multimodal — native recordings go up as audio and get transcribed in the same call); creation happens client-side through the existing mutations, so device-local reminders still schedule for free. Still $0: no speech-to-text service, no extra infra.
+
+One ai@7 gotcha: system-role messages in `messages` throw `AI_InvalidPromptError` — the system prompt must go through the `instructions:` option on `generateText`.
+
+**Calendar tab** — replaces the Partner tab. A month grid with day statuses colored in (full day / missed / rest), dots on days with due to-dos, and a tap-to-see day detail: that day's to-dos with times and done state, plus the every-day consistent tasks (with their Challenge badge). Prev/next month navigation, all fed by one `calendar.get` query.
+
+**Per-task Basic/Challenge** — accountability is now per task, not per profile:
+- **Basic** tasks are fully private: no emails, never shown to a partner, ranked on the Basic board.
+- **Challenge** tasks are the ones someone hears about: creating one requires a verified accountability contact or a partner (server-enforced; the sheet explains it inline). When a challenge streak breaks, the miss sweep emails **both** the verified contact and the accepted partner — proven live in the logs against both recipients.
+- Leaderboards split into Basic and Challenge boards (players = anyone with ≥1 task of that mode; scores count only that mode's tasks). One person can rank on both.
+- Partner management moved to Profile (the old Partner tab is gone); partners see challenge streak status only — never task names, and basic tasks are invisible to them.
+
+Verified end-to-end as Maya: voice-created a basic task and a to-do (DB-checked), walked the calendar grid + day detail, exercised the challenge gate UI, both boards, and the dual-recipient miss email. `tsc` (web+mobile) + lint + build all clean.
