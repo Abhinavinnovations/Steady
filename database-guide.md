@@ -90,11 +90,8 @@ console.table(r.rows);'
 
 ## Admin console (browse + run SQL from your browser)
 
-Open **https://steady-7wy0t47-preview-4200.runable.site/admin** and paste the key:
-
-```
-steady-admin-2dc79136ddccec50
-```
+Open **https://steady-7wy0t47-preview-4200.runable.site/admin** and paste the admin key
+(it lives in the root `.env` as `ADMIN_KEY` — not printed here since this repo is public).
 
 What you get:
 
