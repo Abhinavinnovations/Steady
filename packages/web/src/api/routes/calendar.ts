@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { authed } from "../middleware/auth";
 import { db } from "../database";
 import * as schema from "../database/schema";
 import { localDate } from "../lib/dates";
+import { occurrencesBetween } from "../../shared/recurrence";
 import { computeDayStatuses } from "../lib/streak";
 
 /**
@@ -30,7 +31,6 @@ export const calendar = {
 
       const today = localDate(p.timezone);
       const monthStart = `${input.month}-01`;
-      const monthEnd = `${input.month}-31`; // string compare — safe upper bound
 
       const taskRows = await db
         .select({
@@ -49,23 +49,12 @@ export const calendar = {
         )
         .orderBy(schema.tasks.id);
 
-      const todoRows = await db
-        .select({
-          id: schema.todos.id,
-          title: schema.todos.title,
-          dueDate: schema.todos.dueDate,
-          scheduledTime: schema.todos.scheduledTime,
-          completedAt: schema.todos.completedAt,
-        })
-        .from(schema.todos)
-        .where(
-          and(
-            eq(schema.todos.userId, context.user.id),
-            gte(schema.todos.dueDate, monthStart),
-            lte(schema.todos.dueDate, monthEnd),
-          ),
-        )
-        .orderBy(schema.todos.dueDate, schema.todos.id);
+      const rows = await db.select().from(schema.todos).where(eq(schema.todos.userId, context.user.id));
+      const checks = await db.select().from(schema.todoCompletions).where(eq(schema.todoCompletions.userId, context.user.id));
+      const done = new Map(checks.map(c => [`${c.todoId}:${c.localDate}`, c.completedAt]));
+      const [year, monthNo] = input.month.split("-").map(Number);
+      const end = `${input.month}-${new Date(Date.UTC(year, monthNo, 0)).getUTCDate()}`;
+      const todoRows = rows.flatMap(t => occurrencesBetween(t.dueDate, t.repeat, monthStart, end).map(day => ({ ...t, scheduleLocked: !!t.completedAt || checks.some(c => c.todoId === t.id), anchorDate: t.dueDate, dueDate: day, occurrenceDate: day, completedAt: t.repeat === "none" ? t.completedAt : done.get(`${t.id}:${day}`) ?? null })));
 
       const { statuses } = await computeDayStatuses(context.user.id, p.timezone);
       const days: Record<string, string> = {};
@@ -77,13 +66,7 @@ export const calendar = {
         today,
         month: input.month,
         tasks: taskRows,
-        todos: todoRows.map((t) => ({
-          id: t.id,
-          title: t.title,
-          dueDate: t.dueDate,
-          scheduledTime: t.scheduledTime,
-          completed: !!t.completedAt,
-        })),
+        todos: todoRows.map(t => ({ ...t, completed: !!t.completedAt })),
         days,
       };
     }),

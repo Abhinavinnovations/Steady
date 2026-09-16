@@ -14,6 +14,7 @@ import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { SteadyButton } from "@/components/steady-button";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
+import { PaperHeading } from "@/components/paper-heading";
 import { authClient, captureToken } from "@/lib/auth";
 
 export default function SignUpScreen() {
@@ -41,10 +42,11 @@ export default function SignUpScreen() {
   }
 
   const inputStyle = {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.inputBorder,
     backgroundColor: colors.card,
     color: colors.foreground,
     paddingHorizontal: 16,
@@ -65,18 +67,10 @@ export default function SignUpScreen() {
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24 }}
+          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, width: "100%", maxWidth: 540, alignSelf: "center" }}
         >
           <View style={{ paddingTop: 40, paddingBottom: 32 }}>
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 26,
-              }}
-            >
-              Create your account
-            </Text>
+            <PaperHeading title="Create your account" />
             <Text
               style={{
                 marginTop: 8,
@@ -93,6 +87,8 @@ export default function SignUpScreen() {
             <TextInput
               style={inputStyle}
               placeholder="Name"
+              accessibilityLabel="Name"
+              autoComplete="name"
               placeholderTextColor={colors.mutedForeground}
               value={name}
               onChangeText={setName}
@@ -100,6 +96,8 @@ export default function SignUpScreen() {
             <TextInput
               style={inputStyle}
               placeholder="Email"
+              accessibilityLabel="Email"
+              autoComplete="email"
               placeholderTextColor={colors.mutedForeground}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -109,6 +107,8 @@ export default function SignUpScreen() {
             <TextInput
               style={inputStyle}
               placeholder="Password (8+ characters)"
+              accessibilityLabel="Password, at least 8 characters"
+              autoComplete="new-password"
               placeholderTextColor={colors.mutedForeground}
               secureTextEntry
               value={password}
@@ -134,7 +134,7 @@ export default function SignUpScreen() {
           </View>
 
           <View style={{ flex: 1 }} />
-          <Pressable onPress={() => router.back()} style={{ paddingVertical: 24 }}>
+          <Pressable accessibilityRole="button" onPress={() => router.back()} style={{ paddingVertical: 24 }}>
             <Text
               style={{
                 textAlign: "center",

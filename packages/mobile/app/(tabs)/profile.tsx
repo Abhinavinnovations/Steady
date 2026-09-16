@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -11,15 +13,16 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { useThemeMode, type ThemeMode } from "@/lib/theme-context";
+import { useThemeMode } from "@/lib/theme-context";
+import { GlassSegmentedControl } from "@/components/glass-segmented-control";
 import { authClient, clearToken } from "@/lib/auth";
-import { AccountabilitySetup } from "@/components/accountability-setup";
 import { PartnerSection } from "@/components/partner-section";
 import { useCurrentTasks, useProfile } from "@/queries/steady";
 import { usePartner } from "@/queries/partners";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
-import { TAB_BAR_CLEARANCE } from "./_layout";
+import { useTabClearance } from "@/components/paper-tab-bar";
+import { PaperHeading } from "@/components/paper-heading";
 
 function Row({
   icon,
@@ -44,7 +47,7 @@ function Row({
       <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: Fonts?.sans, fontSize: 14 }}>
         {label}
       </Text>
-      <Text style={{ color: colors.foreground, fontFamily: Fonts?.medium, fontSize: 14 }}>
+      <Text style={{ maxWidth: "55%", textAlign: "right", color: colors.foreground, fontFamily: Fonts?.medium, fontSize: 14 }}>
         {value}
       </Text>
     </View>
@@ -53,6 +56,7 @@ function Row({
 
 export default function ProfileScreen() {
   const colors = useColors();
+  const tabClearance = useTabClearance();
   const router = useRouter();
   const qc = useQueryClient();
   const profile = useProfile();
@@ -75,12 +79,12 @@ export default function ProfileScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
     >
       <GradientBackdrop />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: TAB_BAR_CLEARANCE }}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 24, paddingBottom: tabClearance, width: "100%", maxWidth: 700, alignSelf: "center" }}
       >
-        <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 24 }}>
-          Profile
-        </Text>
+        <PaperHeading title="Profile" />
 
         {profile.isLoading ? (
           <View style={{ paddingVertical: 60, alignItems: "center" }}>
@@ -89,14 +93,14 @@ export default function ProfileScreen() {
         ) : p ? (
           <>
             {/* Identity card */}
-            <GlassCard style={{ marginTop: 20 }} padding={20} radius={20}>
-              <View style={{ alignItems: "center", gap: 6 }}>
+            <GlassCard style={{ marginTop: 28, borderWidth: 0, backgroundColor: "transparent" }} padding={0} radius={0}>
+              <View style={{ alignItems: "flex-start", gap: 6 }}>
               <View
                 style={{
                   width: 64,
                   height: 64,
                   borderRadius: 32,
-                  backgroundColor: colors.primarySoft,
+                  backgroundColor: colors.accent,
                   alignItems: "center",
                   justifyContent: "center",
                   marginBottom: 6,
@@ -106,7 +110,7 @@ export default function ProfileScreen() {
                   {(p.displayName || "?").slice(0, 1).toUpperCase()}
                 </Text>
               </View>
-              <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 18 }}>
+              <Text style={{ color: colors.foreground, fontFamily: Fonts.display, fontSize: 36 }}>
                 {p.displayName}
               </Text>
               <Text style={{ color: colors.mutedForeground, fontFamily: Fonts?.sans, fontSize: 13 }}>
@@ -144,8 +148,8 @@ export default function ProfileScreen() {
             </GlassCard>
 
             {/* Details */}
-            <GlassCard style={{ marginTop: 16 }} padding={0} radius={16}>
-              <View style={{ paddingHorizontal: 16 }}>
+            <GlassCard style={{ marginTop: 24, borderWidth: 0, borderTopWidth: 1, borderBottomWidth: 1, backgroundColor: "transparent" }} padding={0} radius={0}>
+              <View>
                 <Row icon="globe-outline" label="Timezone" value={p.timezone} />
                 <View style={{ height: 1, backgroundColor: colors.border }} />
                 <Row
@@ -157,7 +161,7 @@ export default function ProfileScreen() {
                 <Row
                   icon="lock-closed-outline"
                   label="Month locked"
-                  value={current.data?.confirmed ? "Yes" : "Not yet"}
+                  value={current.data ? (current.data.confirmed ? "Yes" : "Not yet") : "—"}
                 />
                 <View style={{ height: 1, backgroundColor: colors.border }} />
                 <Row
@@ -179,103 +183,39 @@ export default function ProfileScreen() {
               style={{
                 marginTop: 24,
                 marginBottom: 10,
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
+                color: colors.foreground,
+                fontFamily: Fonts.display,
+                fontSize: 27,
+                lineHeight: 33,
               }}
             >
               Appearance
             </Text>
-            <GlassCard padding={6} radius={16}>
-              <View style={{ flexDirection: "row", gap: 6 }}>
-                {(
-                  [
-                    { key: "light", label: "Light", icon: "sunny-outline" },
-                    { key: "dark", label: "Dark", icon: "moon-outline" },
-                    { key: "system", label: "Auto", icon: "contrast-outline" },
-                  ] as { key: ThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }[]
-                ).map((opt) => {
-                  const active = themeMode === opt.key;
-                  return (
-                    <Pressable
-                      key={opt.key}
-                      onPress={() => setThemeMode(opt.key)}
-                      style={({ pressed }) => ({
-                        flex: 1,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 6,
-                        paddingVertical: 10,
-                        borderRadius: 11,
-                        backgroundColor: active ? colors.primarySoft : "transparent",
-                        borderWidth: 1,
-                        borderColor: active ? colors.primary : "transparent",
-                        opacity: pressed ? 0.85 : 1,
-                      })}
-                    >
-                      <Ionicons
-                        name={opt.icon}
-                        size={15}
-                        color={active ? colors.primary : colors.mutedForeground}
-                      />
-                      <Text
-                        style={{
-                          color: active ? colors.primary : colors.mutedForeground,
-                          fontFamily: active ? Fonts?.semibold : Fonts?.medium,
-                          fontSize: 13,
-                        }}
-                      >
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </GlassCard>
+            <GlassSegmentedControl label="Appearance" value={themeMode} onChange={setThemeMode} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "Auto" }]}/>
 
             {/* Accountability contact — needed for challenge tasks */}
             <Text
               style={{
                 marginTop: 24,
                 marginBottom: 10,
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
+                color: colors.foreground,
+                fontFamily: Fonts.display,
+                fontSize: 27,
+                lineHeight: 33,
               }}
             >
               Accountability contact
             </Text>
-            <GlassCard padding={16} radius={16}>
-              <AccountabilitySetup showRemove />
-            </GlassCard>
-
-            {/* Partner — challenge tasks only */}
-            <Text
-              style={{
-                marginTop: 24,
-                marginBottom: 10,
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
-              }}
-            >
-              Partner
-            </Text>
             <PartnerSection />
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
               onPress={signOut}
               style={({ pressed }) => ({
                 marginTop: 24,
-                height: 52,
-                borderRadius: 14,
+                minHeight: 52,
+                borderRadius: 999,
                 borderWidth: 1,
                 borderColor: colors.border,
                 alignItems: "center",
@@ -304,6 +244,7 @@ export default function ProfileScreen() {
           </Text>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

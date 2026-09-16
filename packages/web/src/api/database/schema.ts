@@ -53,11 +53,14 @@ export const tasks = sqliteTable(
   "tasks",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    createRequestId: text("create_request_id"),
+    createFingerprint: text("create_fingerprint"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     month: text("month").notNull(), // "YYYY-MM"
     title: text("title").notNull(),
+    flagged: integer("flagged", { mode: "boolean" }).notNull().default(false),
     /**
      * Per-task stakes. Basic = fully private. Challenge = your partner /
      * accountability contact hears about it when the streak breaks, and the
@@ -84,7 +87,7 @@ export const tasks = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date()),
   },
-  (t) => [index("tasks_user_month").on(t.userId, t.month)],
+  (t) => [index("tasks_user_month").on(t.userId, t.month), uniqueIndex("tasks_user_request").on(t.userId, t.createRequestId)],
 );
 
 /** User-defined task categories (work, study, wishlist, ...) — never hardcoded. */
@@ -111,14 +114,18 @@ export const todos = sqliteTable(
   "todos",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    createRequestId: text("create_request_id"),
+    createFingerprint: text("create_fingerprint"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    flagged: integer("flagged", { mode: "boolean" }).notNull().default(false),
     /** Optional focus-timer duration in minutes (same timer as consistent tasks). */
     durationMinutes: integer("duration_minutes"),
     /** Local date "YYYY-MM-DD" the todo is planned for (defaults to today). */
     dueDate: text("due_date").notNull(),
+    repeat: text("repeat", { enum: ["none", "daily", "weekdays", "weekends", "weekly", "monthly"] }).notNull().default("none"),
     /** Optional time of day "HH:mm". */
     scheduledTime: text("scheduled_time"),
     reminderEnabled: integer("reminder_enabled", { mode: "boolean" })
@@ -135,6 +142,7 @@ export const todos = sqliteTable(
   (t) => [
     index("todos_user_due").on(t.userId, t.dueDate),
     index("todos_user_open").on(t.userId, t.completedAt),
+    uniqueIndex("todos_user_request").on(t.userId, t.createRequestId),
   ],
 );
 
@@ -253,3 +261,12 @@ export const missAlerts = sqliteTable(
   },
   (t) => [uniqueIndex("miss_alerts_user_day").on(t.userId, t.missedDate)],
 );
+
+/** Repeating to-do checkoffs are independent of consistency and streaks. */
+export const todoCompletions = sqliteTable("todo_completions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  todoId: integer("todo_id").notNull().references(() => todos.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  localDate: text("local_date").notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+}, t => [uniqueIndex("todo_completions_day").on(t.todoId, t.localDate), index("todo_completions_user").on(t.userId)]);

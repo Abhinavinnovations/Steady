@@ -1,10 +1,13 @@
 import { z } from "zod";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { authed } from "../middleware/auth";
 import { db } from "../database";
 import * as schema from "../database/schema";
 import { localDate, localMonth } from "../lib/dates";
+import { createFingerprint, replayCreate } from "../lib/create-request";
+import { requireChallengeContact } from "../lib/challenge-contact";
+import { confirmSetup, setupInput } from "../lib/commitment-setup";
 
 async function requireProfile(userId: string) {
   const [p] = await db
@@ -14,32 +17,6 @@ async function requireProfile(userId: string) {
   if (!p?.onboardedAt)
     throw new ORPCError("FORBIDDEN", { message: "Finish onboarding first" });
   return p;
-}
-
-/**
- * Challenge tasks need someone on the other end — a verified accountability
- * contact or a partner (invited/accepted). Otherwise "challenge" is meaningless.
- */
-async function requireChallengeBackstop(userId: string) {
-  const [contact] = await db
-    .select({ id: schema.accountabilityContacts.id })
-    .from(schema.accountabilityContacts)
-    .where(
-      and(
-        eq(schema.accountabilityContacts.userId, userId),
-        isNotNull(schema.accountabilityContacts.verifiedAt),
-      ),
-    );
-  if (contact) return;
-  const [partner] = await db
-    .select({ id: schema.partners.id, status: schema.partners.status })
-    .from(schema.partners)
-    .where(eq(schema.partners.ownerId, userId));
-  if (partner && partner.status !== "declined") return;
-  throw new ORPCError("FORBIDDEN", {
-    message:
-      "Challenge tasks need someone watching — set a partner or verified contact in Profile first",
-  });
 }
 
 async function getCommitment(userId: string, month: string) {
@@ -56,6 +33,7 @@ async function getCommitment(userId: string, month: string) {
 }
 
 export const tasks = {
+  confirmSetup: authed.input(setupInput).handler(({ context, input }) => confirmSetup(context.user.id, input)),
   /** Current month's commitment + task list. */
   current: authed.handler(async ({ context }) => {
     const p = await requireProfile(context.user.id);
@@ -83,6 +61,7 @@ export const tasks = {
   create: authed
     .input(
       z.object({
+        requestId: z.string().uuid().optional(),
         title: z.string().trim().min(2).max(80),
         /** Optional planned minutes for the focus timer (5 min – 8 h). */
         durationMinutes: z.number().int().min(5).max(480).optional(),
@@ -94,16 +73,21 @@ export const tasks = {
           .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
           .optional(),
         /** Local reminder notification at scheduledTime. */
+        flagged: z.boolean().optional(),
         reminderEnabled: z.boolean().optional(),
         /** basic = fully private; challenge = partner/contact hears about broken streaks. */
         mode: z.enum(["basic", "challenge"]).optional(),
       }),
     )
     .handler(async ({ context, input }) => {
+      const fingerprint = createFingerprint(input);
+      const lookup = async () => input.requestId ? (await db.select().from(schema.tasks).where(and(eq(schema.tasks.userId,context.user.id),eq(schema.tasks.createRequestId,input.requestId))))[0] : undefined;
+      const saved = await lookup();
+      if (saved) return replayCreate(saved,fingerprint);
       const p = await requireProfile(context.user.id);
       const month = localMonth(p.timezone);
       if (input.mode === "challenge")
-        await requireChallengeBackstop(context.user.id);
+        await requireChallengeContact(context.user.id);
       if (input.categoryId != null) {
         const [c] = await db
           .select({ id: schema.categories.id })
@@ -134,8 +118,11 @@ export const tasks = {
         .insert(schema.tasks)
         .values({
           userId: context.user.id,
+          createRequestId: input.requestId,
+          createFingerprint: input.requestId ? fingerprint : null,
           month,
           title: input.title.trim(),
+          flagged: input.flagged ?? false,
           durationMinutes: input.durationMinutes ?? null,
           startDate: localDate(p.timezone),
           categoryId: input.categoryId ?? null,
@@ -143,8 +130,11 @@ export const tasks = {
           reminderEnabled: input.reminderEnabled ?? false,
           mode: input.mode ?? "basic",
         })
+        .onConflictDoNothing()
         .returning();
-      return task;
+      const result = task ?? await lookup();
+      if (!result) throw new ORPCError("CONFLICT", {message:"Could not confirm the save. Retry this draft."});
+      return input.requestId ? replayCreate(result,fingerprint) : result;
     }),
 
   /**
@@ -162,6 +152,7 @@ export const tasks = {
           .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
           .nullable()
           .optional(),
+        flagged: z.boolean().optional(),
         reminderEnabled: z.boolean().optional(),
         mode: z.enum(["basic", "challenge"]).optional(),
       }),
@@ -169,7 +160,7 @@ export const tasks = {
     .handler(async ({ context, input }) => {
       await requireProfile(context.user.id);
       if (input.mode === "challenge")
-        await requireChallengeBackstop(context.user.id);
+        await requireChallengeContact(context.user.id);
       const [task] = await db
         .select()
         .from(schema.tasks)
@@ -209,6 +200,7 @@ export const tasks = {
             ? { reminderEnabled: input.reminderEnabled }
             : {}),
           ...(input.mode !== undefined ? { mode: input.mode } : {}),
+          ...(input.flagged !== undefined ? { flagged: input.flagged } : {}),
         })
         .where(eq(schema.tasks.id, task.id))
         .returning();
@@ -245,7 +237,7 @@ export const tasks = {
     const p = await requireProfile(context.user.id);
     const month = localMonth(p.timezone);
     const list = await db
-      .select({ id: schema.tasks.id })
+      .select({ id: schema.tasks.id, mode: schema.tasks.mode })
       .from(schema.tasks)
       .where(
         and(eq(schema.tasks.userId, context.user.id), eq(schema.tasks.month, month)),
@@ -253,6 +245,8 @@ export const tasks = {
     if (list.length === 0)
       throw new ORPCError("BAD_REQUEST", { message: "Add at least one task" });
     const existing = await getCommitment(context.user.id, month);
+    if (existing?.confirmedAt) return existing;
+    if (list.some(t => t.mode === "challenge")) await requireChallengeContact(context.user.id);
     if (existing) {
       if (existing.confirmedAt) return existing;
       const [updated] = await db
@@ -297,6 +291,7 @@ export const tasks = {
       );
     const have = new Set(currentTasks.map((t) => t.title.toLowerCase()));
     const toCopy = prevTasks.filter((t) => !have.has(t.title.toLowerCase()));
+    if (toCopy.some(t => t.mode === "challenge")) await requireChallengeContact(context.user.id);
     if (toCopy.length > 0) {
       await db.insert(schema.tasks).values(
         toCopy.map((t) => ({

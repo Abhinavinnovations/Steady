@@ -5,9 +5,12 @@
       "package": "com.steady_7ogf.runable",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#0A0A0F"
+        "backgroundColor": "#101316"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "extra": {
       "apiUrl": "https://steady-7wy0t47-preview-4200.runable.site/",
@@ -21,7 +24,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "cover",
-      "backgroundColor": "#0A0A0F"
+      "backgroundColor": "#101316"
     },
     "name": "Steady",
     "slug": "steady",
@@ -39,7 +42,15 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-font",
-      "expo-audio"
+      "expo-audio",
+      "expo-notifications",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Steady to hear the tasks you choose to dictate.",
+          "speechRecognitionPermission": "Allow Steady to show words as you speak. Your speech service may process audio online."
+        }
+      ]
     ]
   }
 }

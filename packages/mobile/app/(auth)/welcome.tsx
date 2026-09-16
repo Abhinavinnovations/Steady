@@ -1,12 +1,11 @@
 import { useMemo } from "react";
-import { Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { SteadyButton } from "@/components/steady-button";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
-import { GlassCard } from "@/components/glass-card";
 
 const QUOTES: { text: string; by: string }[] = [
   { text: "We are what we repeatedly do. Excellence, then, is not an act, but a habit.", by: "Will Durant" },
@@ -34,7 +33,7 @@ export default function WelcomeScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
     >
       <GradientBackdrop />
-      <View style={{ flex: 1, paddingHorizontal: 28, justifyContent: "space-between" }}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 28, gap: 44, justifyContent: "space-between", width: "100%", maxWidth: 640, alignSelf: "center" }}>
         <View style={{ paddingTop: 24 }}>
           <Text
             style={{
@@ -49,13 +48,13 @@ export default function WelcomeScreen() {
           </Text>
         </View>
 
-        <GlassCard padding={24} radius={24}>
+        <View style={{ paddingVertical: 24 }}>
           <Text
             style={{
               color: colors.foreground,
-              fontFamily: Fonts?.light,
-              fontSize: 26,
-              lineHeight: 40,
+              fontFamily: Fonts.display,
+              fontSize: 42,
+              lineHeight: 50,
             }}
           >
             “{quote.text}”
@@ -70,7 +69,7 @@ export default function WelcomeScreen() {
           >
             — {quote.by}
           </Text>
-        </GlassCard>
+        </View>
 
         <View style={{ paddingBottom: 24, gap: 12 }}>
           <SteadyButton title="Begin" onPress={() => router.push("/(auth)/sign-in")} />
@@ -85,7 +84,7 @@ export default function WelcomeScreen() {
             Consistency, without the guilt.
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

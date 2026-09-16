@@ -4,6 +4,7 @@ import { ORPCError } from "@orpc/server";
 import { authed } from "../middleware/auth";
 import { db } from "../database";
 import * as schema from "../database/schema";
+import { requireChallengeContact } from "../lib/challenge-contact";
 import { isValidTimezone } from "../lib/dates";
 
 async function getOrNull(userId: string) {
@@ -23,7 +24,15 @@ export const profile = {
       : null;
   }),
 
-  /** Finish onboarding: pick mode, capture timezone. Idempotent. */
+  /** Setup bootstrap only: never overwrite an existing profile or activate Challenge. */
+  beginSetup: authed.input(z.object({ timezone: z.string().min(1).max(64) })).handler(async ({ context, input }) => {
+    const existing = await getOrNull(context.user.id);
+    if (existing) return existing;
+    await db.insert(schema.profiles).values({ userId: context.user.id, mode: "basic", timezone: isValidTimezone(input.timezone) ? input.timezone : "UTC", displayName: context.user.name || "Anonymous", onboardedAt: new Date() }).onConflictDoNothing();
+    return (await getOrNull(context.user.id))!;
+  }),
+
+  /** Legacy onboarding contract for already-open clients. */
   onboard: authed
     .input(
       z.object({
@@ -33,6 +42,7 @@ export const profile = {
       }),
     )
     .handler(async ({ context, input }) => {
+      if (input.mode === "challenge") await requireChallengeContact(context.user.id);
       const tz = isValidTimezone(input.timezone) ? input.timezone : "UTC";
       const displayName =
         input.displayName?.trim() || context.user.name || "Anonymous";
@@ -80,6 +90,7 @@ export const profile = {
       if (input.displayName) patch.displayName = input.displayName.trim();
       if (input.timezone && isValidTimezone(input.timezone))
         patch.timezone = input.timezone;
+      if (input.mode === "challenge") await requireChallengeContact(context.user.id);
       if (input.mode) patch.mode = input.mode;
       if (input.leaderboardOptOut !== undefined)
         patch.leaderboardOptOut = input.leaderboardOptOut;

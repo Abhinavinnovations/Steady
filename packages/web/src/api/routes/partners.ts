@@ -138,7 +138,7 @@ export const partners = {
     };
   }),
 
-  /** Invite one accountability partner by email. Verified email required. */
+  /** Invite one accountability contact by email. Verified email required. */
   invite: authed
     .input(z.object({ email: z.string().trim().toLowerCase().email().max(254) }))
     .handler(async ({ context, input }) => {
@@ -152,7 +152,7 @@ export const partners = {
         throw new ORPCError("FORBIDDEN", { message: "Finish onboarding first" });
       if (input.email === context.user.email.toLowerCase())
         throw new ORPCError("BAD_REQUEST", {
-          message: "You can't be your own partner",
+          message: "You can't be your own accountability contact",
         });
 
       const [existing] = await db
@@ -161,7 +161,7 @@ export const partners = {
         .where(eq(schema.partners.ownerId, context.user.id));
       if (existing && existing.status !== "declined")
         throw new ORPCError("CONFLICT", {
-          message: "One partner at a time — remove the current one first",
+          message: "One accountability contact at a time — remove the current one first",
         });
       if (existing) {
         await db.delete(schema.partners).where(eq(schema.partners.id, existing.id));
@@ -179,7 +179,7 @@ export const partners = {
       // Best-effort email; the invite is also visible in-app when they sign in.
       void sendEmail({
         to: input.email,
-        subject: `${p.displayName} wants you as their accountability partner`,
+        subject: `${p.displayName} wants you as their accountability contact`,
         text: `${p.displayName} is building a daily habit on Steady and asked you to keep them honest. Sign in with this email address to accept: ${appUrl()}`,
         html: emailShell(
           `${p.displayName} asked you to keep them honest`,
@@ -224,10 +224,10 @@ export const partners = {
         if (owner) {
           void sendEmail({
             to: owner.email,
-            subject: "Your accountability partner accepted",
+            subject: "Your accountability contact accepted",
             text: `${context.user.name || context.user.email} accepted your Steady invite. They now see your high-level progress.`,
             html: emailShell(
-              "Partner locked in",
+              "Accountability contact accepted",
               `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${context.user.name || context.user.email}</b> accepted. They'll see your streak and daily status — never your tasks or notes. Show up.</p>`,
             ),
           });
@@ -243,7 +243,7 @@ export const partners = {
       .where(eq(schema.partners.ownerId, context.user.id))
       .returning({ id: schema.partners.id });
     if (res.length === 0)
-      throw new ORPCError("NOT_FOUND", { message: "No partner to remove" });
+      throw new ORPCError("NOT_FOUND", { message: "No accountability contact to remove" });
     return { ok: true };
   }),
 
@@ -261,7 +261,7 @@ export const partners = {
             eq(schema.partners.status, "accepted"),
           ),
         );
-      if (!row) throw new ORPCError("NOT_FOUND", { message: "Partner not found" });
+      if (!row) throw new ORPCError("NOT_FOUND", { message: "Accountability contact not found" });
 
       const status = await highLevelStatus(row.ownerId);
       if (!status?.missedYesterday)
@@ -292,11 +292,11 @@ export const partners = {
       if (owner) {
         void sendEmail({
           to: owner.email,
-          subject: "A gentle nudge from your partner",
-          text: `${context.user.name || "Your partner"} noticed you missed yesterday. Fresh start today — one task, one line.`,
+          subject: "A gentle nudge from your accountability contact",
+          text: `${context.user.name || "Your accountability contact"} noticed you missed yesterday. Fresh start today — one task, one line.`,
           html: emailShell(
             "Fresh start today",
-            `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${context.user.name || "Your partner"}</b> noticed yesterday slipped. No guilt — just do one thing today and write one line.</p>`,
+            `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${context.user.name || "Your accountability contact"}</b> noticed yesterday slipped. No guilt — just do one thing today and write one line.</p>`,
           ),
         });
       }

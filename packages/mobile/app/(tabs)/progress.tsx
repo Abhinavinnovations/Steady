@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   ScrollView,
   Text,
@@ -15,7 +14,10 @@ import { useStats } from "@/queries/steady";
 import { useBadges } from "@/queries/leaderboard";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
-import { TAB_BAR_CLEARANCE } from "./_layout";
+import { GlassSegmentedControl } from "@/components/glass-segmented-control";
+import { useTabClearance } from "@/components/paper-tab-bar";
+import { PaperHeading } from "@/components/paper-heading";
+import { SteadyButton } from "@/components/steady-button";
 
 type Range = "week" | "month" | "year";
 
@@ -46,16 +48,16 @@ function StatCard({
     <View
       style={{
         flex: 1,
-        backgroundColor: colors.card,
-        borderWidth: 1,
+        minWidth: 88,
+        borderBottomWidth: 1,
         borderColor: colors.border,
-        borderRadius: 16,
-        padding: 14,
+        paddingVertical: 16,
+        paddingHorizontal: 4,
         gap: 6,
       }}
     >
       <Ionicons name={icon} size={16} color={color} />
-      <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 20 }}>
+      <Text style={{ color: colors.foreground, fontFamily: Fonts.display, fontSize: 34 }}>
         {value}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: Fonts?.sans, fontSize: 11 }}>
@@ -67,6 +69,7 @@ function StatCard({
 
 export default function ProgressScreen() {
   const colors = useColors();
+  const tabClearance = useTabClearance();
   const [range, setRange] = useState<Range>("week");
   const stats = useStats(range);
   const badges = useBadges();
@@ -76,7 +79,7 @@ export default function ProgressScreen() {
     s === "complete"
       ? colors.success
       : s === "missed"
-        ? colors.destructive
+        ? colors.warning
         : s === "pending"
           ? colors.primary
           : colors.border;
@@ -88,7 +91,7 @@ export default function ProgressScreen() {
     >
       <GradientBackdrop />
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: TAB_BAR_CLEARANCE }}
+        contentContainerStyle={{ padding: 24, paddingBottom: tabClearance, width: "100%", maxWidth: 700, alignSelf: "center" }}
         refreshControl={
           <RefreshControl
             refreshing={stats.isRefetching}
@@ -97,56 +100,23 @@ export default function ProgressScreen() {
           />
         }
       >
-        <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 24 }}>
-          Progress
-        </Text>
+        <PaperHeading title="Progress" subtitle="Small days. A bigger picture." />
 
-        {/* Range toggle */}
-        <View
-          style={{
-            flexDirection: "row",
-            marginTop: 16,
-            backgroundColor: colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 4,
-          }}
-        >
-          {(["week", "month", "year"] as Range[]).map((r) => (
-            <Pressable
-              key={r}
-              onPress={() => setRange(r)}
-              style={{
-                flex: 1,
-                paddingVertical: 8,
-                borderRadius: 9,
-                alignItems: "center",
-                backgroundColor: range === r ? colors.primary : "transparent",
-              }}
-            >
-              <Text
-                style={{
-                  color: range === r ? colors.primaryForeground : colors.mutedForeground,
-                  fontFamily: Fonts?.medium,
-                  fontSize: 13,
-                  textTransform: "capitalize",
-                }}
-              >
-                {r}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <GlassSegmentedControl label="Progress range" value={range} onChange={setRange} style={{ marginTop: 16 }} options={(["week", "month", "year"] as const).map(value => ({ value, label: value[0].toUpperCase() + value.slice(1), accessibilityLabel: `${value} progress` }))}/>
 
-        {stats.isLoading || !d ? (
+        {stats.isError && !d ? (
+          <View style={{ paddingVertical: 32, gap: 16 }}>
+            <Text accessibilityLiveRegion="polite" style={{ color: colors.mutedForeground, fontFamily: Fonts.sans }}>Could not load your progress. Try again.</Text>
+            <SteadyButton title="Retry progress" variant="outline" onPress={() => void stats.refetch()} />
+          </View>
+        ) : stats.isLoading || !d ? (
           <View style={{ paddingVertical: 60, alignItems: "center" }}>
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : (
           <>
             {/* Stat cards */}
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 20 }}>
               <StatCard
                 label="Active streak"
                 value={`${d.streak}d`}
@@ -172,11 +142,10 @@ export default function ProgressScreen() {
               style={{
                 marginTop: 28,
                 marginBottom: 12,
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
+                color: colors.foreground,
+                fontFamily: Fonts.display,
+                fontSize: 27,
+                lineHeight: 33,
               }}
             >
               {range === "week" ? "Last 7 days" : range === "month" ? "This month" : "Last 12 months"}
@@ -186,13 +155,14 @@ export default function ProgressScreen() {
                 {d.days.map((day) => (
                   <View
                     key={day.date}
+                    accessible
+                    accessibilityLabel={`${day.date}: ${day.status}`}
                     style={{
                       width: range === "week" ? 34 : DOT,
-                      height: range === "week" ? 34 : DOT,
+                      minHeight: range === "week" ? 34 : DOT,
                       borderRadius: range === "week" ? 10 : 4,
                       backgroundColor:
                         day.status === "rest" ? colors.secondary : statusColor(day.status),
-                      opacity: day.status === "rest" ? 0.6 : 1,
                       alignItems: "center",
                       justifyContent: "center",
                     }}
@@ -203,7 +173,7 @@ export default function ProgressScreen() {
                           color:
                             day.status === "rest"
                               ? colors.mutedForeground
-                              : "#FFFFFF",
+                              : colors.primaryForeground,
                           fontFamily: Fonts?.semibold,
                           fontSize: 12,
                         }}
@@ -214,10 +184,10 @@ export default function ProgressScreen() {
                   </View>
                 ))}
               </View>
-              <View style={{ flexDirection: "row", gap: 14, marginTop: 14 }}>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 14 }}>
                 {[
                   ["Done", colors.success],
-                  ["Missed", colors.destructive],
+                  ["Missed", colors.warning],
                   ["Today", colors.primary],
                   ["Rest", colors.secondary],
                 ].map(([label, c]) => (
@@ -236,11 +206,10 @@ export default function ProgressScreen() {
               style={{
                 marginTop: 28,
                 marginBottom: 12,
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
+                color: colors.foreground,
+                fontFamily: Fonts.display,
+                fontSize: 27,
+                lineHeight: 33,
               }}
             >
               Badges
@@ -258,7 +227,6 @@ export default function ProgressScreen() {
                     borderRadius: 16,
                     padding: 14,
                     gap: 6,
-                    opacity: b.earned ? 1 : 0.45,
                   }}
                 >
                   <Ionicons
@@ -296,11 +264,10 @@ export default function ProgressScreen() {
               style={{
                 marginTop: 28,
                 marginBottom: 12,
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 11,
-                letterSpacing: 1.2,
-                textTransform: "uppercase",
+                color: colors.foreground,
+                fontFamily: Fonts.display,
+                fontSize: 27,
+                lineHeight: 33,
               }}
             >
               Journal
@@ -323,11 +290,9 @@ export default function ProgressScreen() {
                   <View
                     key={`${n.date}-${i}`}
                     style={{
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
+                      borderBottomWidth: 1,
                       borderColor: colors.border,
-                      borderRadius: 16,
-                      padding: 14,
+                      paddingVertical: 16,
                       gap: 4,
                     }}
                   >

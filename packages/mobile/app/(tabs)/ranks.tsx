@@ -21,7 +21,9 @@ import {
 } from "@/queries/leaderboard";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
-import { TAB_BAR_CLEARANCE } from "./_layout";
+import { GlassSegmentedControl } from "@/components/glass-segmented-control";
+import { useTabClearance } from "@/components/paper-tab-bar";
+import { PaperHeading } from "@/components/paper-heading";
 
 const RANGES: LeaderboardRange[] = ["week", "month", "year"];
 const BUCKETS: { value: LeaderboardBucket; label: string }[] = [
@@ -32,6 +34,7 @@ const BUCKETS: { value: LeaderboardBucket; label: string }[] = [
 
 export default function RanksScreen() {
   const colors = useColors();
+  const tabClearance = useTabClearance();
   const profile = useProfile();
   const updateProfile = useUpdateProfile();
 
@@ -57,7 +60,7 @@ export default function RanksScreen() {
     >
       <GradientBackdrop />
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: TAB_BAR_CLEARANCE }}
+        contentContainerStyle={{ padding: 24, paddingBottom: tabClearance, width: "100%", maxWidth: 700, alignSelf: "center" }}
         refreshControl={
           <RefreshControl
             refreshing={board.isRefetching}
@@ -66,9 +69,7 @@ export default function RanksScreen() {
           />
         }
       >
-        <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 24 }}>
-          Ranks
-        </Text>
+        <PaperHeading title="Ranks" />
         <Text
           style={{
             marginTop: 6,
@@ -82,92 +83,24 @@ export default function RanksScreen() {
           full days — every task done.
         </Text>
 
-        {/* Mode toggle */}
-        <View
-          style={{
-            flexDirection: "row",
-            marginTop: 16,
-            backgroundColor: colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 4,
-          }}
-        >
-          {(["basic", "challenge"] as LeaderboardMode[]).map((m) => (
-            <Pressable
-              key={m}
-              onPress={() => setMode(m)}
-              style={{
-                flex: 1,
-                paddingVertical: 8,
-                borderRadius: 9,
-                alignItems: "center",
-                backgroundColor: activeMode === m ? colors.primary : "transparent",
-              }}
-            >
-              <Text
-                style={{
-                  color:
-                    activeMode === m ? colors.primaryForeground : colors.mutedForeground,
-                  fontFamily: Fonts?.medium,
-                  fontSize: 13,
-                  textTransform: "capitalize",
-                }}
-              >
-                {m}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Range toggle */}
-        <View
-          style={{
-            flexDirection: "row",
-            marginTop: 10,
-            backgroundColor: colors.card,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 4,
-          }}
-        >
-          {RANGES.map((r) => (
-            <Pressable
-              key={r}
-              onPress={() => setRange(r)}
-              style={{
-                flex: 1,
-                paddingVertical: 8,
-                borderRadius: 9,
-                alignItems: "center",
-                backgroundColor: range === r ? colors.primary : "transparent",
-              }}
-            >
-              <Text
-                style={{
-                  color: range === r ? colors.primaryForeground : colors.mutedForeground,
-                  fontFamily: Fonts?.medium,
-                  fontSize: 13,
-                  textTransform: "capitalize",
-                }}
-              >
-                {r}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <GlassSegmentedControl label="Leaderboard mode" value={activeMode} onChange={setMode} style={{ marginTop: 18 }} options={[{ value: "basic", label: "Basic", accessibilityLabel: "basic leaderboard" }, { value: "challenge", label: "Challenge", accessibilityLabel: "challenge leaderboard" }]}/>
+        <GlassSegmentedControl label="Leaderboard range" value={range} onChange={setRange} style={{ marginTop: 10 }} options={RANGES.map(value => ({ value, label: value[0].toUpperCase() + value.slice(1), accessibilityLabel: `${value} leaderboard` }))}/>
 
         {/* Bucket chips */}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
           {BUCKETS.map((b) => {
             const active = activeBucket === b.value;
             return (
               <Pressable
                 key={b.value}
+                accessibilityRole="radio"
+                accessibilityLabel={b.label}
+                accessibilityState={{checked:active}}
+                aria-checked={active}
                 onPress={() => setBucket(b.value)}
                 style={{
+                  minHeight: 44,
+                  justifyContent: "center",
                   paddingHorizontal: 14,
                   paddingVertical: 7,
                   borderRadius: 999,
@@ -212,18 +145,18 @@ export default function RanksScreen() {
               </Text>
             </GlassCard>
           ) : (
-            <GlassCard padding={8} radius={16}>
+            <GlassCard padding={0} radius={0} style={{ backgroundColor: "transparent", borderWidth: 0 }}>
               {d.entries.map((e, i) => (
                 <View
                   key={`${e.rank}-${e.displayName}`}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 12,
-                    paddingHorizontal: 12,
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    backgroundColor: e.isMe ? colors.primarySoft : "transparent",
+                    gap: 8,
+                    paddingHorizontal: 6,
+                    paddingVertical: 18,
+                    borderRadius: 8,
+                    backgroundColor: e.isMe ? colors.accent : "transparent",
                     borderTopWidth: i === 0 ? 0 : 1,
                     borderTopColor: colors.border,
                   }}
@@ -246,7 +179,6 @@ export default function RanksScreen() {
                         fontFamily: e.isMe ? Fonts?.semibold : Fonts?.medium,
                         fontSize: 14,
                       }}
-                      numberOfLines={1}
                     >
                       {e.displayName}
                       {e.isMe ? "  (you)" : ""}
@@ -341,6 +273,7 @@ export default function RanksScreen() {
                 </Text>
               </View>
               <Switch
+                accessibilityLabel="Appear on leaderboards"
                 value={!optedOut}
                 disabled={updateProfile.isPending}
                 onValueChange={(value) =>

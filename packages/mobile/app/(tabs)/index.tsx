@@ -14,6 +14,8 @@ import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { TaskRow } from "@/components/task-row";
+import { repeatLabels } from "@/lib/recurrence";
 import { ProgressRing } from "@/components/progress-ring";
 import { NoteSheet } from "@/components/note-sheet";
 import { AddTaskSheet, type TaskSheetValues } from "@/components/add-task-sheet";
@@ -24,15 +26,16 @@ import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
 import { formatDuration } from "@/components/duration-wheel";
 import { formatTime12 } from "@/components/schedule-fields";
-import { useAccountability } from "@/queries/accountability";
+import { usePartner } from "@/queries/partners";
 import {
   cancelReminder,
-  scheduleTaskReminder,
-  scheduleTodoReminder,
+  reportReminder,
+  refreshReminders,
   taskReminderId,
   todoReminderId,
 } from "@/lib/reminders";
-import { TAB_BAR_CLEARANCE } from "./_layout";
+import { useTabClearance } from "@/components/paper-tab-bar";
+import { PaperHeading } from "@/components/paper-heading";
 import {
   useCompleteTask,
   useCopyPrevious,
@@ -56,6 +59,7 @@ type TodayTask = {
   id: number;
   title: string;
   completed: boolean;
+  flagged: boolean;
   note: string | null;
   durationMinutes: number | null;
   categoryId: number | null;
@@ -77,6 +81,7 @@ function shortDate(iso: string) {
 
 export default function TodayScreen() {
   const colors = useColors();
+  const tabClearance = useTabClearance();
   const router = useRouter();
   const profile = useProfile();
   const today = useToday();
@@ -93,11 +98,13 @@ export default function TodayScreen() {
   const removeTodo = useRemoveTodo();
   const removeCategory = useRemoveCategory();
 
-  const params = useLocalSearchParams<{ note?: string }>();
-  const accountability = useAccountability();
+  const params = useLocalSearchParams<{ note?: string; noteDate?: string }>();
+  const accountability = usePartner();
 
-  const [noteTask, setNoteTask] = useState<TodayTask | null>(null);
+  const [noteTask, setNoteTask] = useState<(TodayTask & { expectedDate: string }) | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [flagOnly, setFlagOnly] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [catFilter, setCatFilter] = useState<number | "all">("all");
 
@@ -130,12 +137,12 @@ export default function TodayScreen() {
           mode: v.mode,
         });
         if (v.scheduledTime && v.reminderEnabled) {
-          void scheduleTaskReminder(id, taskSheet.task.title, v.scheduledTime);
+          void refreshReminders().then(reportReminder);
         } else {
           void cancelReminder(taskReminderId(id));
         }
       } else {
-        const task = await createTask.mutateAsync({
+        await createTask.mutateAsync({
           title: v.title,
           mode: v.mode,
           ...(v.durationMinutes ? { durationMinutes: v.durationMinutes } : {}),
@@ -144,7 +151,7 @@ export default function TodayScreen() {
           ...(v.reminderEnabled ? { reminderEnabled: true } : {}),
         });
         if (v.scheduledTime && v.reminderEnabled) {
-          void scheduleTaskReminder(task.id, v.title, v.scheduledTime);
+          void refreshReminders().then(reportReminder);
         }
       }
       setTaskSheet(null);
@@ -163,26 +170,28 @@ export default function TodayScreen() {
           title: v.title,
           durationMinutes: v.durationMinutes,
           dueDate: v.dueDate,
+          repeat: v.repeat,
           scheduledTime: v.scheduledTime,
           reminderEnabled: v.reminderEnabled,
           categoryId: v.categoryId,
         });
         if (v.scheduledTime && v.reminderEnabled) {
-          void scheduleTodoReminder(id, v.title, v.dueDate, v.scheduledTime);
+          void refreshReminders().then(reportReminder);
         } else {
           void cancelReminder(todoReminderId(id));
         }
       } else {
-        const todo = await createTodo.mutateAsync({
+        await createTodo.mutateAsync({
           title: v.title,
           dueDate: v.dueDate,
+          repeat: v.repeat,
           ...(v.durationMinutes ? { durationMinutes: v.durationMinutes } : {}),
           ...(v.categoryId ? { categoryId: v.categoryId } : {}),
           ...(v.scheduledTime ? { scheduledTime: v.scheduledTime } : {}),
           ...(v.reminderEnabled ? { reminderEnabled: true } : {}),
         });
         if (v.scheduledTime && v.reminderEnabled) {
-          void scheduleTodoReminder(todo.id, v.title, v.dueDate, v.scheduledTime);
+          void refreshReminders().then(reportReminder);
         }
       }
       setTodoSheet(null);
@@ -194,10 +203,10 @@ export default function TodayScreen() {
   function confirmDeleteTodo(todo: Todo) {
     const run = () => {
       void cancelReminder(todoReminderId(todo.id));
-      removeTodo.mutate({ id: todo.id });
+      removeTodo.mutate({ id: todo.id }, { onError: e => setActionError(e.message) });
     };
     if (Platform.OS === "web") {
-      run();
+      if (window.confirm("Delete this item? This cannot be undone.")) run();
       return;
     }
     Alert.alert("Delete to-do?", `"${todo.title}" will be gone for good.`, [
@@ -212,7 +221,7 @@ export default function TodayScreen() {
       removeCategory.mutate({ id });
     };
     if (Platform.OS === "web") {
-      run();
+      if (window.confirm("Delete this item? This cannot be undone.")) run();
       return;
     }
     Alert.alert(
@@ -229,12 +238,16 @@ export default function TodayScreen() {
   useEffect(() => {
     if (!params.note || !today.data) return;
     const t = today.data.tasks.find((x) => String(x.id) === params.note);
-    router.setParams({ note: undefined });
+    router.setParams({ note: undefined, noteDate: undefined });
+    if (!params.noteDate || params.noteDate !== today.data.localDate) {
+      setActionError("The date changed during focus. Review Today before completing a task.");
+      return;
+    }
     if (t && !t.completed) {
       setNoteError(null);
-      setNoteTask(t);
+      setNoteTask({ ...t, expectedDate: params.noteDate });
     }
-  }, [params.note, today.data, router]);
+  }, [params.note, params.noteDate, today.data, router]);
 
   if (profile.isLoading || today.isLoading) {
     return (
@@ -296,19 +309,21 @@ export default function TodayScreen() {
       : "Do one thing, write one line.";
 
   const catList = categories.data ?? [];
-  const visibleTasks =
-    catFilter === "all" ? d.tasks : d.tasks.filter((t) => t.categoryId === catFilter);
+  const visibleTasks = d.tasks.filter(t => (catFilter === "all" || t.categoryId === catFilter) && (!flagOnly || t.flagged)).sort((a,b)=>Number(b.flagged)-Number(a.flagged));
   const todoList = todos.data?.todos ?? [];
-  const visibleTodos =
-    catFilter === "all"
-      ? todoList
-      : todoList.filter((t) => t.categoryId === catFilter);
+  const visibleTodos = todoList.filter(t => (catFilter === "all" || t.categoryId === catFilter) && (!flagOnly || t.flagged));
+  function focus(t: TodayTask | Todo, todo: boolean) {
+    if (!todo && !d?.confirmed) { setActionError("Confirm this month before starting focus."); return; }
+    if (!t.durationMinutes) { if (todo) { setTodoError("Choose a focus duration, then save."); setTodoSheet({mode:"edit",todo:t as Todo}); } else { setTaskError("Choose a focus duration, then save."); setTaskSheet({mode:"edit",task:t as TodayTask}); } return; }
+    router.push(todo ? `/timer/${t.id}?type=todo&occurrenceDate=${(t as Todo).occurrenceDate}` : `/timer/${t.id}`);
+  }
+
 
   async function submitNote(note: string) {
     if (!noteTask) return;
     setNoteError(null);
     try {
-      await complete.mutateAsync({ taskId: noteTask.id, note });
+      await complete.mutateAsync({ taskId: noteTask.id, expectedDate: noteTask.expectedDate, note });
       setNoteTask(null);
     } catch (e: any) {
       setNoteError(e?.message ?? "Couldn't save");
@@ -316,13 +331,14 @@ export default function TodayScreen() {
   }
 
   function confirmUndo(task: TodayTask) {
+    const expectedDate = d!.localDate;
     if (Platform.OS === "web") {
-      undo.mutate({ taskId: task.id });
+      undo.mutate({ taskId: task.id, expectedDate }, { onError: e => setActionError(e.message) });
       return;
     }
     Alert.alert("Undo completion?", `"${task.title}" will go back to pending.`, [
       { text: "Cancel", style: "cancel" },
-      { text: "Undo", style: "destructive", onPress: () => undo.mutate({ taskId: task.id }) },
+      { text: "Undo", style: "destructive", onPress: () => undo.mutate({ taskId: task.id, expectedDate }, { onError: e => setActionError(e.message) }) },
     ]);
   }
 
@@ -336,7 +352,7 @@ export default function TodayScreen() {
     >
       <GradientBackdrop />
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: TAB_BAR_CLEARANCE }}
+        contentContainerStyle={{ padding: 24, paddingBottom: tabClearance, width: "100%", maxWidth: 700, alignSelf: "center" }}
         refreshControl={
           <RefreshControl
             refreshing={today.isRefetching}
@@ -351,32 +367,16 @@ export default function TodayScreen() {
         {/* Header */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={{ flex: 1 }}>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: Fonts?.medium,
-                fontSize: 13,
-              }}
-            >
-              {dateLabel}
-            </Text>
-            <Text
-              style={{
-                marginTop: 2,
-                color: colors.foreground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 24,
-              }}
-            >
-              Today
-            </Text>
+            <PaperHeading title="Today" subtitle={dateLabel} />
           </View>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add task by voice"
             onPress={() => setVoiceOpen(true)}
             hitSlop={6}
             style={({ pressed }) => ({
-              width: 38,
-              height: 38,
+              width: 44,
+              height: 44,
               borderRadius: 999,
               alignItems: "center",
               justifyContent: "center",
@@ -415,44 +415,21 @@ export default function TodayScreen() {
           </View>
         </View>
 
-        {/* Ring hero — consistent tasks only */}
-        <View style={{ alignItems: "center", marginTop: 28, marginBottom: 8 }}>
-          <ProgressRing progress={progress}>
-            <View style={{ alignItems: "center" }}>
-              <Text
-                style={{
-                  color: colors.foreground,
-                  fontFamily: Fonts?.semibold,
-                  fontSize: 34,
-                }}
-              >
-                {d.doneCount}
-                <Text style={{ color: colors.mutedForeground, fontSize: 20 }}>
-                  /{d.totalCount}
-                </Text>
-              </Text>
-              <Text
-                style={{
-                  color: colors.mutedForeground,
-                  fontFamily: Fonts?.sans,
-                  fontSize: 12,
-                }}
-              >
-                done today
-              </Text>
-            </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 18, marginTop: 26, paddingVertical: 22, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border }}>
+          <ProgressRing progress={progress} size={86} strokeWidth={5}>
+            <Text style={{ color: colors.foreground, fontFamily: Fonts.semibold, fontSize: 20 }}>{d.doneCount}<Text style={{color:colors.mutedForeground,fontSize:13}}>/{d.totalCount}</Text></Text>
           </ProgressRing>
-          <Text
-            style={{
-              marginTop: 16,
-              color: d.allDone ? colors.success : colors.mutedForeground,
-              fontFamily: Fonts?.medium,
-              fontSize: 14,
-            }}
-          >
-            {subline}
-          </Text>
+          <View style={{ flex: 1, gap: 5 }}>
+            <Text style={{color:colors.primary,fontFamily:Fonts.medium,fontSize:10,letterSpacing:1.5}}>YOUR DAILY COMMITMENT</Text>
+            <Text style={{color:colors.foreground,fontFamily:Fonts.display,fontSize:29,lineHeight:33}}>{d.allDone ? "A day well spent." : "One thing at a time."}</Text>
+            <Text style={{color:colors.mutedForeground,fontFamily:Fonts.sans,fontSize:12,lineHeight:19}}>{subline}</Text>
+          </View>
         </View>
+        <View style={{flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:18}}>
+          <Text style={{flex:1,color:colors.mutedForeground,fontFamily:Fonts.sans,fontSize:11}}>{profile.data?.timezone} · Swipe left for actions</Text>
+          <Pressable accessibilityRole="button" accessibilityState={{selected:flagOnly}} aria-pressed={flagOnly} onPress={()=>setFlagOnly(!flagOnly)} style={{minHeight:44,flexDirection:"row",gap:6,alignItems:"center",paddingHorizontal:10}}><Ionicons name={flagOnly?"flag":"flag-outline"} size={16} color={colors.primary}/><Text style={{color:colors.primary,fontFamily:Fonts.medium,fontSize:12}}>{flagOnly?"Flagged":"All tasks"}</Text></Pressable>
+        </View>
+        {actionError && <Pressable onPress={()=>setActionError(null)}><Text accessibilityLiveRegion="polite" style={{color:colors.destructive,fontFamily:Fonts.sans,paddingVertical:12}}>{actionError}</Text></Pressable>}
 
         {/* Month not confirmed (rollover) */}
         {!d.confirmed ? (
@@ -474,7 +451,7 @@ export default function TodayScreen() {
                 fontSize: 15,
               }}
             >
-              New month, new commitment
+              {d.hasCommittedBefore ? "New month, new commitment" : "A commitment, when you’re ready"}
             </Text>
             <Text
               style={{
@@ -484,13 +461,13 @@ export default function TodayScreen() {
                 lineHeight: 19,
               }}
             >
-              Confirm your tasks for this month to start ticking days again.
+              {d.hasCommittedBefore ? "Confirm your tasks for this month to start ticking days again." : "To-dos work right away. A daily commitment is optional; saved drafts stay here until you confirm."}
             </Text>
             <SteadyButton
-              title="Set up this month"
+              title={d.hasCommittedBefore ? "Set up this month" : "Set up your commitment"}
               onPress={() => router.push("/onboarding?step=tasks")}
             />
-            <SteadyButton
+            {d.hasCommittedBefore && <SteadyButton
               title={
                 copyPrevious.isPending ? "Copying..." : "Reuse last month's tasks"
               }
@@ -504,14 +481,14 @@ export default function TodayScreen() {
                 }
                 router.push("/onboarding?step=tasks");
               }}
-            />
+            />}
           </View>
         ) : null}
 
         {/* Challenge tasks without a verified accountability contact */}
         {d.tasks.some((t) => t.mode === "challenge") &&
         accountability.isSuccess &&
-        !accountability.data?.verified ? (
+        accountability.data?.outgoing?.status !== "accepted" ? (
           <GlassCard style={{ marginTop: 20 }} padding={16} radius={16}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Ionicons name="shield-outline" size={22} color={colors.warning} />
@@ -523,7 +500,7 @@ export default function TodayScreen() {
                     fontSize: 14,
                   }}
                 >
-                  No accountability contact yet
+                  No accepted accountability contact
                 </Text>
                 <Text
                   style={{
@@ -534,8 +511,7 @@ export default function TodayScreen() {
                     lineHeight: 17,
                   }}
                 >
-                  Challenge mode alerts someone when you miss a day. Add them in
-                  Profile.
+                  Invite an accountability contact in Profile and wait for acceptance. Pending and old email-code contacts receive no alerts.
                 </Text>
               </View>
               <Pressable onPress={() => router.push("/profile")} hitSlop={8}>
@@ -566,6 +542,10 @@ export default function TodayScreen() {
                 return (
                   <Pressable
                     key={String(c.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Category: ${c.name}`}
+                    accessibilityState={{ selected: active }}
+                    aria-pressed={active}
                     onPress={() => setCatFilter(c.id as number | "all")}
                     onLongPress={
                       c.id === "all"
@@ -573,6 +553,8 @@ export default function TodayScreen() {
                         : () => confirmDeleteCategory(c.id as number, c.name)
                     }
                     style={({ pressed }) => ({
+                      minHeight: 44,
+                      justifyContent: "center",
                       borderWidth: 1,
                       borderColor: active ? colors.primary : colors.border,
                       backgroundColor: active ? colors.primarySoft : colors.card,
@@ -611,230 +593,24 @@ export default function TodayScreen() {
           <Ionicons name="flame-outline" size={13} color={colors.mutedForeground} />
           <Text
             style={{
-              color: colors.mutedForeground,
-              fontFamily: Fonts?.semibold,
-              fontSize: 11,
-              letterSpacing: 1.2,
-              textTransform: "uppercase",
+              color: colors.foreground,
+              fontFamily: Fonts.display,
+              fontSize: 27,
+              lineHeight: 33,
             }}
           >
             Consistent
           </Text>
         </View>
         <View style={{ gap: 10 }}>
-          {visibleTasks.map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => {
-                if (!d.confirmed) return;
-                if (t.completed) {
-                  setExpanded(expanded === t.id ? null : t.id);
-                } else {
-                  setNoteError(null);
-                  setNoteTask(t);
-                }
-              }}
-              style={({ pressed }) => ({
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 16,
-                padding: 16,
-                opacity: pressed ? 0.9 : t.completed ? 0.75 : 1,
-              })}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                {t.completed ? (
-                  <Ionicons name="checkmark-circle" size={26} color={colors.success} />
-                ) : (
-                  <Ionicons
-                    name="ellipse-outline"
-                    size={26}
-                    color={colors.mutedForeground}
-                  />
-                )}
-                <View style={{ flex: 1, gap: 3 }}>
-                  <Text
-                    style={{
-                      color: colors.foreground,
-                      fontFamily: Fonts?.medium,
-                      fontSize: 15,
-                    }}
-                  >
-                    {t.title}
-                  </Text>
-                  {t.scheduledTime || catName(t.categoryId) || t.mode === "challenge" ? (
-                    <View
-                      style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-                    >
-                      {t.scheduledTime ? (
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 3,
-                          }}
-                        >
-                          <Ionicons
-                            name={
-                              t.reminderEnabled ? "alarm-outline" : "time-outline"
-                            }
-                            size={11}
-                            color={colors.mutedForeground}
-                          />
-                          <Text
-                            style={{
-                              color: colors.mutedForeground,
-                              fontFamily: Fonts?.medium,
-                              fontSize: 12,
-                            }}
-                          >
-                            {formatTime12(t.scheduledTime)}
-                          </Text>
-                        </View>
-                      ) : null}
-                      {catName(t.categoryId) ? (
-                        <Text
-                          style={{
-                            color: colors.primary,
-                            fontFamily: Fonts?.medium,
-                            fontSize: 12,
-                          }}
-                        >
-                          {catName(t.categoryId)}
-                        </Text>
-                      ) : null}
-                      {t.mode === "challenge" ? (
-                        <View
-                          style={{
-                            paddingHorizontal: 6,
-                            paddingVertical: 1,
-                            borderRadius: 5,
-                            backgroundColor: colors.warning + "26",
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: colors.warning,
-                              fontFamily: Fonts?.medium,
-                              fontSize: 10,
-                            }}
-                          >
-                            Challenge
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </View>
-                {t.completed ? (
-                  <Ionicons
-                    name={expanded === t.id ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color={colors.mutedForeground}
-                  />
-                ) : (
-                  <View
-                    style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-                  >
-                    {t.durationMinutes ? (
-                      <>
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 4,
-                            backgroundColor: colors.muted,
-                            borderRadius: 999,
-                            paddingHorizontal: 10,
-                            paddingVertical: 4,
-                          }}
-                        >
-                          <Ionicons
-                            name="timer-outline"
-                            size={12}
-                            color={colors.mutedForeground}
-                          />
-                          <Text
-                            style={{
-                              color: colors.mutedForeground,
-                              fontFamily: Fonts?.semibold,
-                              fontSize: 12,
-                            }}
-                          >
-                            {formatDuration(t.durationMinutes)}
-                          </Text>
-                        </View>
-                        <Pressable
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            if (d.confirmed) router.push(`/timer/${t.id}`);
-                          }}
-                          hitSlop={6}
-                        >
-                          <Ionicons
-                            name="play-circle"
-                            size={34}
-                            color={colors.primary}
-                          />
-                        </Pressable>
-                      </>
-                    ) : (
-                      <Text
-                        style={{
-                          color: colors.primary,
-                          fontFamily: Fonts?.semibold,
-                          fontSize: 13,
-                        }}
-                      >
-                        Do it
-                      </Text>
-                    )}
-                    <Pressable
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        setTaskError(null);
-                        setTaskSheet({ mode: "edit", task: t });
-                      }}
-                      hitSlop={8}
-                    >
-                      <Ionicons
-                        name="ellipsis-vertical"
-                        size={16}
-                        color={colors.mutedForeground}
-                      />
-                    </Pressable>
-                  </View>
-                )}
-              </View>
-              {t.completed && expanded === t.id ? (
-                <View style={{ marginTop: 12, gap: 10 }}>
-                  <Text
-                    style={{
-                      color: colors.mutedForeground,
-                      fontFamily: Fonts?.sans,
-                      fontSize: 13,
-                      lineHeight: 19,
-                      fontStyle: "italic",
-                    }}
-                  >
-                    “{t.note}”
-                  </Text>
-                  <Pressable onPress={() => confirmUndo(t)} hitSlop={6}>
-                    <Text
-                      style={{
-                        color: colors.destructive,
-                        fontFamily: Fonts?.medium,
-                        fontSize: 13,
-                      }}
-                    >
-                      Undo
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </Pressable>
-          ))}
+          {visibleTasks.map(t => <TaskRow key={t.id} title={t.title} focusIdentity={t.durationMinutes ? {kind:"task",id:t.id,day:d.localDate,durationMinutes:t.durationMinutes} : undefined} consistent done={t.completed} flagged={t.flagged}
+            subtitle={[t.scheduledTime ? formatTime12(t.scheduledTime) : null, t.durationMinutes ? formatDuration(t.durationMinutes) : null, catName(t.categoryId),t.mode === "challenge" ? "Challenge" : "Daily commitment"].filter(Boolean).join(" · ")}
+            onPress={()=>{if(!d.confirmed)return;if(t.completed)setExpanded(expanded===t.id?null:t.id);else{setNoteError(null);setNoteTask({...t,expectedDate:d.localDate});}}}
+            onSchedule={()=>{setTaskError(null);setTaskSheet({mode:"edit",task:t});}}
+            onFlag={()=>updateTask.mutate({id:t.id,flagged:!t.flagged},{onError:e=>setActionError(e.message)})}
+            onFocus={t.completed?undefined:()=>focus(t,false)}>
+            {t.completed && expanded===t.id ? <View style={{gap:10}}><Text style={{color:colors.mutedForeground,fontFamily:Fonts.sans,fontSize:13,lineHeight:20}}>“{t.note}”</Text><Pressable accessibilityRole="button" onPress={()=>confirmUndo(t)} style={{minHeight:44,justifyContent:"center"}}><Text style={{color:colors.destructive,fontFamily:Fonts.medium}}>Undo completion</Text></Pressable></View>:null}
+          </TaskRow>)}
           {visibleTasks.length === 0 && d.confirmed ? (
             <Text
               style={{
@@ -852,6 +628,8 @@ export default function TodayScreen() {
           ) : null}
           {d.confirmed && d.tasks.length < 10 ? (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add a task"
               onPress={() => {
                 setTaskError(null);
                 setTaskSheet({ mode: "create" });
@@ -901,11 +679,10 @@ export default function TodayScreen() {
           <Text
             style={{
               flex: 1,
-              color: colors.mutedForeground,
-              fontFamily: Fonts?.semibold,
-              fontSize: 11,
-              letterSpacing: 1.2,
-              textTransform: "uppercase",
+              color: colors.foreground,
+              fontFamily: Fonts.display,
+              fontSize: 27,
+              lineHeight: 33,
             }}
           >
             To-dos
@@ -921,178 +698,15 @@ export default function TodayScreen() {
           </Text>
         </View>
         <View style={{ gap: 10 }}>
-          {visibleTodos.map((t) => {
-            const done = !!t.completedAt;
-            const overdue = !done && t.dueDate < d.localDate;
-            return (
-              <Pressable
-                key={t.id}
-                onPress={() => {
-                  setTodoError(null);
-                  setTodoSheet({ mode: "edit", todo: t });
-                }}
-                style={({ pressed }) => ({
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 16,
-                  padding: 14,
-                  opacity: pressed ? 0.9 : done ? 0.6 : 1,
-                })}
-              >
-                <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
-                >
-                  <Pressable
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      if (done) {
-                        toggleTodo.mutate({ id: t.id, done: false });
-                      } else {
-                        void cancelReminder(todoReminderId(t.id));
-                        toggleTodo.mutate({ id: t.id, done: true });
-                      }
-                    }}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name={done ? "checkbox" : "square-outline"}
-                      size={24}
-                      color={done ? colors.success : colors.mutedForeground}
-                    />
-                  </Pressable>
-                  <View style={{ flex: 1, gap: 3 }}>
-                    <Text
-                      style={{
-                        color: colors.foreground,
-                        fontFamily: Fonts?.medium,
-                        fontSize: 15,
-                        textDecorationLine: done ? "line-through" : "none",
-                      }}
-                    >
-                      {t.title}
-                    </Text>
-                    {overdue || t.scheduledTime || catName(t.categoryId) ? (
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        {overdue ? (
-                          <Text
-                            style={{
-                              color: colors.warning,
-                              fontFamily: Fonts?.medium,
-                              fontSize: 12,
-                            }}
-                          >
-                            since {shortDate(t.dueDate)}
-                          </Text>
-                        ) : null}
-                        {t.scheduledTime ? (
-                          <View
-                            style={{
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 3,
-                            }}
-                          >
-                            <Ionicons
-                              name={
-                                t.reminderEnabled ? "alarm-outline" : "time-outline"
-                              }
-                              size={11}
-                              color={colors.mutedForeground}
-                            />
-                            <Text
-                              style={{
-                                color: colors.mutedForeground,
-                                fontFamily: Fonts?.medium,
-                                fontSize: 12,
-                              }}
-                            >
-                              {formatTime12(t.scheduledTime)}
-                            </Text>
-                          </View>
-                        ) : null}
-                        {catName(t.categoryId) ? (
-                          <Text
-                            style={{
-                              color: colors.primary,
-                              fontFamily: Fonts?.medium,
-                              fontSize: 12,
-                            }}
-                          >
-                            {catName(t.categoryId)}
-                          </Text>
-                        ) : null}
-                      </View>
-                    ) : null}
-                  </View>
-                  {!done && t.durationMinutes ? (
-                    <View
-                      style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-                    >
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                          backgroundColor: colors.muted,
-                          borderRadius: 999,
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                        }}
-                      >
-                        <Ionicons
-                          name="timer-outline"
-                          size={12}
-                          color={colors.mutedForeground}
-                        />
-                        <Text
-                          style={{
-                            color: colors.mutedForeground,
-                            fontFamily: Fonts?.semibold,
-                            fontSize: 12,
-                          }}
-                        >
-                          {formatDuration(t.durationMinutes)}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          router.push(`/timer/${t.id}?type=todo`);
-                        }}
-                        hitSlop={6}
-                      >
-                        <Ionicons
-                          name="play-circle"
-                          size={30}
-                          color={colors.primary}
-                        />
-                      </Pressable>
-                    </View>
-                  ) : null}
-                  <Pressable
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      confirmDeleteTodo(t);
-                    }}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="trash-outline"
-                      size={18}
-                      color={colors.mutedForeground}
-                    />
-                  </Pressable>
-                </View>
-              </Pressable>
-            );
-          })}
+          {todos.isError && <Pressable accessibilityRole="button" accessibilityLabel="Retry to-dos" style={{minHeight:44,justifyContent:"center"}} onPress={()=>void todos.refetch()}><Text style={{color:colors.destructive,fontFamily:Fonts.sans}}>Could not load to-dos. Tap to retry.</Text></Pressable>}
+          {visibleTodos.map(t => <TaskRow key={t.id} title={t.title} focusIdentity={t.durationMinutes ? {kind:"todo",id:t.id,day:t.occurrenceDate,durationMinutes:t.durationMinutes} : undefined} done={!!t.completedAt} flagged={t.flagged}
+            subtitle={[t.occurrenceDate<d.localDate?shortDate(t.occurrenceDate):null,t.scheduledTime?formatTime12(t.scheduledTime):null,t.durationMinutes?formatDuration(t.durationMinutes):null,t.repeat!=="none"?repeatLabels[t.repeat]:null,catName(t.categoryId)].filter(Boolean).join(" · ")}
+            onPress={()=>{setTodoError(null);setTodoSheet({mode:"edit",todo:t});}}
+            onCheck={()=>toggleTodo.mutate({id:t.id,done:!t.completedAt,occurrenceDate:t.occurrenceDate},{onSuccess:()=>{if(!t.completedAt)void cancelReminder(`${todoReminderId(t.id)}:${t.occurrenceDate}`);},onError:e=>setActionError(e.message)})}
+            onSchedule={()=>{setTodoError(null);setTodoSheet({mode:"edit",todo:t});}}
+            onFlag={()=>updateTodo.mutate({id:t.id,flagged:!t.flagged},{onError:e=>setActionError(e.message)})}
+            onFocus={t.completedAt?undefined:()=>focus(t,true)} onDelete={()=>confirmDeleteTodo(t)}/>
+          )}
           {visibleTodos.length === 0 ? (
             <Text
               style={{
@@ -1109,6 +723,8 @@ export default function TodayScreen() {
             </Text>
           ) : null}
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add a to-do"
             onPress={() => {
               setTodoError(null);
               setTodoSheet({ mode: "create" });
@@ -1177,9 +793,11 @@ export default function TodayScreen() {
           todoSheet?.mode === "edit"
             ? {
                 id: todoSheet.todo.id,
+                scheduleLocked: todoSheet.todo.scheduleLocked,
                 title: todoSheet.todo.title,
                 durationMinutes: todoSheet.todo.durationMinutes,
                 dueDate: todoSheet.todo.dueDate,
+                repeat: todoSheet.todo.repeat,
                 scheduledTime: todoSheet.todo.scheduledTime,
                 reminderEnabled: todoSheet.todo.reminderEnabled,
                 categoryId: todoSheet.todo.categoryId,

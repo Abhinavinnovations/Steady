@@ -8,7 +8,7 @@ import { getToken } from "./auth";
 const baseUrl = Constants.expoConfig?.extra?.apiUrl ?? process.env.EXPO_PUBLIC_API_URL;
 
 const link = new RPCLink({
-  url: `${baseUrl}/api/rpc`,
+  url: `${String(baseUrl).replace(/\/$/, "")}/api/rpc`,
   headers: () => {
     const token = getToken();
     return token ? { Authorization: `Bearer ${token}` } : {};

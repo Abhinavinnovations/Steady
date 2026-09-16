@@ -1,0 +1,10 @@
+STEADY — WHITE PAPER MOBILE ADOPTION, September 13, 2026
+
+reference-paper.webp: blank upper crop from the user's supplied welcome reference. No UI/text pixels. Reused in the actual app at the user's request after design and implementation approval. User-supplied material; no independent stock license claim. A CC0 alternative remains in the unchanged web gallery assets if redistribution requires substitution.
+
+Libre Caslon Display: reused local static Google Fonts file. SIL OFL 1.1, see caslon-OFL.txt.
+https://github.com/google/fonts/tree/main/ofl/librecaslondisplay
+
+DM Sans Regular/Medium/SemiBold/Bold: official static TTF files, weights verified 400/500/600/700. SIL OFL 1.1, see dm-sans-OFL.txt.
+https://github.com/googlefonts/dm-fonts/tree/main/Sans/fonts/ttf
+Downloaded without modifications. No new native font dependency or generated media.

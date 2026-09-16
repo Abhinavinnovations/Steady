@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,23 +11,26 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useProfile } from "@/queries/steady";
+import { useUpdateTodo, useToggleTodo, useRemoveTodo } from "@/queries/todos";
+import { AddTodoSheet, type TodoSheetValues } from "@/components/add-todo-sheet";
+import { TaskRow } from "@/components/task-row";
+import { repeatLabels } from "@/lib/recurrence";
+import { cancelReminder, todoReminderId, refreshReminders, reportReminder } from "@/lib/reminders";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useCalendarMonth } from "@/queries/calendar";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
-import { TAB_BAR_CLEARANCE } from "./_layout";
+import { useTabClearance } from "@/components/paper-tab-bar";
+import { PaperHeading } from "@/components/paper-heading";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-function deviceMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split("-").map(Number);
@@ -75,12 +80,33 @@ const STATUS_NOTES: Record<string, string> = {
 
 export default function CalendarScreen() {
   const colors = useColors();
-  const [month, setMonth] = useState(deviceMonth);
+  const tabClearance = useTabClearance();
+  const profile = useProfile();
+  const router = useRouter();
+  const profileToday = new Intl.DateTimeFormat("en-CA", {timeZone:profile.data?.timezone ?? "UTC",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+  const [chosenMonth, setMonth] = useState<string | null>(null);
+  const month = chosenMonth ?? profileToday.slice(0,7);
   const [selected, setSelected] = useState<string | null>(null);
   const cal = useCalendarMonth(month);
   const d = cal.data;
+  type Todo = NonNullable<typeof d>["todos"][number];
+  const [editing, setEditing] = useState<Todo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const update = useUpdateTodo();
+  const toggle = useToggleTodo();
+  const remove = useRemoveTodo();
+  async function save(values: TodoSheetValues) {
+    if (!editing) return;
+    setError(null);
+    try { await update.mutateAsync({id:editing.id,...values}); if (values.reminderEnabled && values.scheduledTime) reportReminder(await refreshReminders()); else await cancelReminder(todoReminderId(editing.id)); setEditing(null); } catch (e:any) { setError(e.message ?? "Could not save. Try again."); }
+  }
+  function deleteTodo(t: Todo) {
+    const run=()=>remove.mutate({id:t.id},{onSuccess:()=>void cancelReminder(todoReminderId(t.id)),onError:e=>setError(e.message)});
+    if(Platform.OS==="web") {if(window.confirm("Delete this to-do and all its repeat history?"))run();}
+    else Alert.alert("Delete to-do?","The whole schedule and its history will be removed.",[{text:"Cancel",style:"cancel"},{text:"Delete",style:"destructive",onPress:run}]);
+  }
 
-  const today = d?.today ?? dateKey(deviceMonth(), new Date().getDate());
+  const today = d?.today ?? profileToday;
   const selectedDay = selected ?? (today.startsWith(month) ? today : null);
 
   const todoDates = useMemo(() => {
@@ -91,7 +117,7 @@ export default function CalendarScreen() {
 
   const statusColor = (status: string | undefined): string | null => {
     if (status === "complete") return colors.success;
-    if (status === "missed") return colors.destructive;
+    if (status === "missed") return colors.warning;
     if (status === "rest") return colors.mutedForeground;
     return null;
   };
@@ -118,7 +144,7 @@ export default function CalendarScreen() {
     >
       <GradientBackdrop />
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: TAB_BAR_CLEARANCE }}
+        contentContainerStyle={{ padding: 24, paddingBottom: tabClearance, width: "100%", maxWidth: 700, alignSelf: "center" }}
         refreshControl={
           <RefreshControl
             refreshing={cal.isRefetching}
@@ -127,9 +153,7 @@ export default function CalendarScreen() {
           />
         }
       >
-        <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 24 }}>
-          Calendar
-        </Text>
+        <PaperHeading title="Calendar" />
         <Text
           style={{
             marginTop: 6,
@@ -139,7 +163,7 @@ export default function CalendarScreen() {
             lineHeight: 19,
           }}
         >
-          Everything scheduled, in one place. Tap a day to see what&apos;s on it.
+          Everything scheduled, in one place. {profile.data?.timezone}.
         </Text>
 
         {/* Month nav */}
@@ -152,14 +176,15 @@ export default function CalendarScreen() {
           }}
         >
           <Pressable
+            accessibilityRole="button" accessibilityLabel="Previous month"
             onPress={() => {
-              setMonth((m) => shiftMonth(m, -1));
+              setMonth(shiftMonth(month, -1));
               setSelected(null);
             }}
             hitSlop={8}
             style={{
-              width: 36,
-              height: 36,
+              width: 44,
+              height: 44,
               borderRadius: 10,
               alignItems: "center",
               justifyContent: "center",
@@ -170,18 +195,19 @@ export default function CalendarScreen() {
           >
             <Ionicons name="chevron-back" size={18} color={colors.foreground} />
           </Pressable>
-          <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 16 }}>
+          <Text style={{ flex: 1, textAlign: "center", color: colors.foreground, fontFamily: Fonts.display, fontSize: 26 }}>
             {monthLabel(month)}
           </Text>
           <Pressable
+            accessibilityRole="button" accessibilityLabel="Next month"
             onPress={() => {
-              setMonth((m) => shiftMonth(m, 1));
+              setMonth(shiftMonth(month, 1));
               setSelected(null);
             }}
             hitSlop={8}
             style={{
-              width: 36,
-              height: 36,
+              width: 44,
+              height: 44,
               borderRadius: 10,
               alignItems: "center",
               justifyContent: "center",
@@ -194,8 +220,10 @@ export default function CalendarScreen() {
           </Pressable>
         </View>
 
+        {cal.isError && <Pressable accessibilityRole="button" onPress={()=>void cal.refetch()} style={{paddingVertical:16}}><Text style={{color:colors.destructive,fontFamily:Fonts.sans}}>Could not load this month. Tap to retry.</Text></Pressable>}
+        {error && !editing && <Text accessibilityLiveRegion="polite" style={{color:colors.destructive,fontFamily:Fonts.sans,marginTop:16}}>{error}</Text>}
         {/* Grid */}
-        <GlassCard style={{ marginTop: 12, padding: 12 }}>
+        <GlassCard style={{ marginTop: 12, marginHorizontal: -18, padding: 0, backgroundColor: "transparent", borderWidth: 0 }}>
           <View style={{ flexDirection: "row" }}>
             {WEEKDAYS.map((w, i) => (
               <View key={`${w}-${i}`} style={{ flex: 1, alignItems: "center", paddingVertical: 4 }}>
@@ -220,7 +248,7 @@ export default function CalendarScreen() {
               <View key={row} style={{ flexDirection: "row" }}>
                 {cells.slice(row * 7, row * 7 + 7).map((day, col) => {
                   if (day === null)
-                    return <View key={col} style={{ flex: 1, aspectRatio: 1 }} />;
+                    return <View key={col} style={{ flex: 1, minHeight: 48 }} />;
                   const date = dateKey(month, day);
                   const isToday = date === today;
                   const isSelected = date === selectedDay;
@@ -229,14 +257,16 @@ export default function CalendarScreen() {
                   return (
                     <Pressable
                       key={col}
+                      accessibilityRole="button" accessibilityLabel={`${date}${todoDates.has(date) ? ", to-dos scheduled" : ""}`} accessibilityState={{selected:isSelected}} aria-pressed={isSelected}
                       onPress={() => setSelected(date)}
                       style={{
                         flex: 1,
-                        aspectRatio: 1,
+                        minHeight: 48,
+                        paddingVertical: 8,
                         alignItems: "center",
                         justifyContent: "center",
-                        margin: 2,
-                        borderRadius: 10,
+                        marginVertical: 2,
+                        borderRadius: 24,
                         backgroundColor: fill ? `${fill}26` : "transparent",
                         borderWidth: isSelected ? 1.5 : isToday ? 1 : 0,
                         borderColor: isSelected
@@ -286,7 +316,7 @@ export default function CalendarScreen() {
           >
             {[
               { c: colors.success, label: "Full day" },
-              { c: colors.destructive, label: "Missed" },
+              { c: colors.warning, label: "Missed" },
               { c: colors.mutedForeground, label: "Rest" },
               { c: colors.primary, label: "To-do due", dot: true },
             ].map((l) => (
@@ -315,8 +345,8 @@ export default function CalendarScreen() {
 
         {/* Day detail */}
         {selectedDay && (
-          <GlassCard style={{ marginTop: 16, padding: 16 }}>
-            <Text style={{ color: colors.foreground, fontFamily: Fonts?.semibold, fontSize: 16 }}>
+          <GlassCard style={{ marginTop: 24, padding: 0, borderWidth: 0, backgroundColor: "transparent" }}>
+            <Text style={{ color: colors.foreground, fontFamily: Fonts.display, fontSize: 28 }}>
               {prettyDay(selectedDay)}
             </Text>
             {selectedDay <= today && selectedStatus && (
@@ -357,47 +387,16 @@ export default function CalendarScreen() {
                 Nothing due this day.
               </Text>
             ) : (
-              dayTodos.map((t) => (
-                <View
-                  key={t.id}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                    marginTop: 10,
-                  }}
-                >
-                  <Ionicons
-                    name={t.completed ? "checkmark-circle" : "ellipse-outline"}
-                    size={18}
-                    color={t.completed ? colors.success : colors.mutedForeground}
-                  />
-                  <Text
-                    style={{
-                      flex: 1,
-                      color: t.completed ? colors.mutedForeground : colors.foreground,
-                      fontFamily: Fonts?.sans,
-                      fontSize: 14,
-                      textDecorationLine: t.completed ? "line-through" : "none",
-                    }}
-                  >
-                    {t.title}
-                  </Text>
-                  {t.scheduledTime && (
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: Fonts?.medium,
-                        fontSize: 12,
-                      }}
-                    >
-                      {formatTime(t.scheduledTime)}
-                    </Text>
-                  )}
-                </View>
-              ))
+              dayTodos.map(t => <View key={`${t.id}:${t.occurrenceDate}`} style={{marginTop:10}}><TaskRow title={t.title} focusIdentity={t.durationMinutes ? {kind:"todo",id:t.id,day:t.occurrenceDate,durationMinutes:t.durationMinutes} : undefined} done={toggle.isPending && toggle.variables?.id===t.id && toggle.variables.occurrenceDate===t.occurrenceDate ? toggle.variables.done : t.completed} flagged={t.flagged}
+                subtitle={[t.scheduledTime?formatTime(t.scheduledTime):null,t.repeat!=="none"?repeatLabels[t.repeat]:null].filter(Boolean).join(" · ")}
+                onPress={()=>{setError(null);setEditing(t);}}
+                onCheck={()=>{if(t.occurrenceDate>today){setError("Future occurrences cannot be completed yet.");return;}toggle.mutate({id:t.id,done:!t.completed,occurrenceDate:t.occurrenceDate},{onSuccess:()=>{if(!t.completed)void cancelReminder(`${todoReminderId(t.id)}:${t.occurrenceDate}`);},onError:e=>setError(e.message)});}}
+                onSchedule={()=>{setError(null);setEditing(t);}}
+                onFlag={()=>update.mutate({id:t.id,flagged:!t.flagged},{onError:e=>setError(e.message)})}
+                onDelete={()=>deleteTodo(t)}/></View>)
             )}
 
+            {selectedDay === today && dayTasks.length > 0 && <Pressable accessibilityRole="button" onPress={()=>router.push("/(tabs)")} style={{minHeight:44,justifyContent:"center",marginTop:12}}><Text style={{color:colors.primary,fontFamily:Fonts.medium}}>Complete consistent tasks with a note in Today</Text></Pressable>}
             {/* Consistent tasks */}
             {dayTasks.length > 0 && (
               <>
@@ -476,13 +475,14 @@ export default function CalendarScreen() {
                     lineHeight: 16,
                   }}
                 >
-                  Consistent tasks repeat every day of the month.
+                  Consistent tasks repeat every day of the month. To-dos never affect these day colors.
                 </Text>
               </>
             )}
           </GlassCard>
         )}
       </ScrollView>
+      <AddTodoSheet visible={!!editing} submitting={update.isPending} error={error} todayISO={today} editing={editing?{...editing,dueDate:editing.anchorDate}:null} onSubmit={save} onClose={()=>{if(!update.isPending){setEditing(null);setError(null);}}}/>
     </SafeAreaView>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,7 +15,9 @@ import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { SteadyButton } from "@/components/steady-button";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
-import { authClient, captureToken } from "@/lib/auth";
+import { PaperHeading } from "@/components/paper-heading";
+import { authClient, captureToken, signInWithGoogle } from "@/lib/auth";
+import { createGoogleAttempt } from "@/lib/auth-random";
 
 export default function SignInScreen() {
   const colors = useColors();
@@ -37,25 +39,23 @@ export default function SignInScreen() {
     if (res.error) setError(res.error.message ?? "Sign-in failed");
   }
 
+  const googleAttempt = useRef(createGoogleAttempt());
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   async function signInGoogle() {
-    setError(null);
-    setGoogleLoading(true);
-    const result = await authClient.managedAuth.signIn({ provider: "google" });
-    setGoogleLoading(false);
-    if (
-      result.error &&
-      result.error.code !== "AUTH_SESSION_DISMISSED" &&
-      result.error.code !== "POPUP_CLOSED"
-    ) {
-      setError(result.error.message ?? "Google sign-in failed");
-    }
+    await googleAttempt.current(signInWithGoogle, (busy, message) => {
+      if (!alive.current) return;
+      setGoogleLoading(busy);
+      setError(message);
+    });
   }
 
   const inputStyle = {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.inputBorder,
     backgroundColor: colors.card,
     color: colors.foreground,
     paddingHorizontal: 16,
@@ -76,18 +76,10 @@ export default function SignInScreen() {
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24 }}
+          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, width: "100%", maxWidth: 540, alignSelf: "center" }}
         >
           <View style={{ paddingTop: 40, paddingBottom: 32 }}>
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: Fonts?.semibold,
-                fontSize: 26,
-              }}
-            >
-              Welcome back
-            </Text>
+            <PaperHeading title="Welcome back" />
             <Text
               style={{
                 marginTop: 8,
@@ -104,6 +96,8 @@ export default function SignInScreen() {
             <TextInput
               style={inputStyle}
               placeholder="Email"
+              accessibilityLabel="Email"
+              autoComplete="email"
               placeholderTextColor={colors.mutedForeground}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -113,6 +107,8 @@ export default function SignInScreen() {
             <TextInput
               style={inputStyle}
               placeholder="Password"
+              accessibilityLabel="Password"
+              autoComplete="current-password"
               placeholderTextColor={colors.mutedForeground}
               secureTextEntry
               value={password}
@@ -145,11 +141,15 @@ export default function SignInScreen() {
             </View>
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continue with Google"
+              accessibilityState={{ disabled: googleLoading }}
               onPress={signInGoogle}
               disabled={googleLoading}
               style={({ pressed }) => ({
-                height: 52,
-                borderRadius: 14,
+                minHeight: 52,
+                paddingVertical: 12,
+                borderRadius: 999,
                 borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.card,
@@ -168,7 +168,7 @@ export default function SignInScreen() {
           </View>
 
           <View style={{ flex: 1 }} />
-          <Pressable onPress={() => router.push("/(auth)/sign-up")} style={{ paddingVertical: 24 }}>
+          <Pressable accessibilityRole="button" onPress={() => router.push("/(auth)/sign-up")} style={{ paddingVertical: 24 }}>
             <Text
               style={{
                 textAlign: "center",

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef } from "react";
 import {
   FlatList,
   Platform,
+  Pressable,
   Text,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -33,18 +35,21 @@ export function formatDuration(min: number): string {
   return m === 0 ? `${h} hr` : `${h}h ${m}m`;
 }
 
-const ITEM_H = 42;
 const VISIBLE = 3;
 const tickSource = require("../assets/sounds/tick.mp3");
 
 export function DurationWheel({
   value,
   onChange,
+  disabled = false,
 }: {
+  disabled?: boolean;
   value: number | null;
   onChange: (minutes: number | null) => void;
 }) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
+  const ITEM_H = Math.max(44, Math.ceil(26 * fontScale));
   const scheme = useColorScheme();
   const listRef = useRef<FlatList<number | null>>(null);
   const indexRef = useRef(Math.max(0, DURATION_STEPS.indexOf(value)));
@@ -75,7 +80,7 @@ export function DurationWheel({
       }, 150);
       return () => clearTimeout(t);
     }
-  }, [value]);
+  }, [value, ITEM_H]);
 
   const tick = useCallback(() => {
     try {
@@ -93,6 +98,7 @@ export function DurationWheel({
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (disabled) return;
       const idx = Math.min(
         DURATION_STEPS.length - 1,
         Math.max(0, Math.round(e.nativeEvent.contentOffset.y / ITEM_H)),
@@ -107,12 +113,18 @@ export function DurationWheel({
         onChange(DURATION_STEPS[idx] ?? null);
       }
     },
-    [onChange, tick],
+    [onChange, tick, disabled, ITEM_H],
   );
 
-  const fadeColor = scheme === "dark" ? "rgba(16,16,24," : "rgba(242,242,247,";
+  const fadeColor = scheme === "dark" ? "rgba(27,32,35," : "rgba(255,253,249,";
 
   return (
+    <View style={{ gap: 8 }}>
+      <View style={{flexDirection:"row", alignItems:"center", justifyContent:"space-between"}}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Decrease focus duration" disabled={disabled || value === null} onPress={() => onChange(DURATION_STEPS[Math.max(0, DURATION_STEPS.indexOf(value) - 1)])} style={{minWidth:44,minHeight:44,alignItems:"center",justifyContent:"center"}}><Text style={{color:colors.primary,fontSize:24}}>−</Text></Pressable>
+        <Text accessibilityLiveRegion="polite" style={{color:colors.foreground,fontFamily:Fonts.medium}}>{value === null ? "No timer" : formatDuration(value)}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Increase focus duration" disabled={disabled || value === 480} onPress={() => onChange(DURATION_STEPS[Math.min(DURATION_STEPS.length - 1, Math.max(0,DURATION_STEPS.indexOf(value)) + 1)])} style={{minWidth:44,minHeight:44,alignItems:"center",justifyContent:"center"}}><Text style={{color:colors.primary,fontSize:24}}>+</Text></Pressable>
+      </View>
     <View
       style={{
         height: ITEM_H * VISIBLE,
@@ -136,10 +148,13 @@ export function DurationWheel({
           backgroundColor: colors.primarySoft,
           borderWidth: 1,
           borderColor: colors.primary,
-          zIndex: 1,
         }}
       />
       <FlatList
+        tabIndex={0}
+        accessibilityLabel="Focus duration wheel; use increase or decrease buttons for exact steps"
+        key={ITEM_H}
+        scrollEnabled={!disabled}
         ref={listRef}
         data={DURATION_STEPS}
         keyExtractor={(item) => String(item ?? "none")}
@@ -188,6 +203,7 @@ export function DurationWheel({
         colors={[`${fadeColor}0)`, `${fadeColor}0.9)`]}
         style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: ITEM_H * 0.9, zIndex: 2 }}
       />
+    </View>
     </View>
   );
 }

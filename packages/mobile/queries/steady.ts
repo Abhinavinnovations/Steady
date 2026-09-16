@@ -5,6 +5,15 @@ export function useProfile() {
   return useQuery(orpc.profile.get.queryOptions({ retry: false }));
 }
 
+export function useBeginSetup() {
+  const qc = useQueryClient();
+  return useMutation(orpc.profile.beginSetup.mutationOptions({ onSuccess: () => { void qc.invalidateQueries(); } }));
+}
+export function useConfirmSetup() {
+  const qc = useQueryClient();
+  return useMutation(orpc.tasks.confirmSetup.mutationOptions({ onSuccess: () => { void qc.invalidateQueries(); } }));
+}
+
 export function useOnboard() {
   const qc = useQueryClient();
   return useMutation(
@@ -19,6 +28,7 @@ export function useUpdateProfile() {
   return useMutation(
     orpc.profile.update.mutationOptions({
       onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.calendar.key() });
         qc.invalidateQueries({ queryKey: orpc.profile.key() });
         qc.invalidateQueries({ queryKey: orpc.leaderboard.key() });
       },
@@ -37,6 +47,7 @@ export function useCompleteTask() {
   return useMutation(
     orpc.today.complete.mutationOptions({
       onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.calendar.key() });
         qc.invalidateQueries({ queryKey: orpc.today.key() });
         qc.invalidateQueries({ queryKey: orpc.stats.key() });
       },
@@ -49,6 +60,7 @@ export function useUndoTask() {
   return useMutation(
     orpc.today.undo.mutationOptions({
       onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.calendar.key() });
         qc.invalidateQueries({ queryKey: orpc.today.key() });
         qc.invalidateQueries({ queryKey: orpc.stats.key() });
       },
@@ -65,6 +77,7 @@ export function useCreateTask() {
   return useMutation(
     orpc.tasks.create.mutationOptions({
       onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.calendar.key() });
         qc.invalidateQueries({ queryKey: orpc.tasks.key() });
         qc.invalidateQueries({ queryKey: orpc.today.key() });
       },
@@ -77,6 +90,7 @@ export function useRemoveTask() {
   return useMutation(
     orpc.tasks.remove.mutationOptions({
       onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.calendar.key() });
         qc.invalidateQueries({ queryKey: orpc.tasks.key() });
         qc.invalidateQueries({ queryKey: orpc.today.key() });
       },
@@ -89,6 +103,7 @@ export function useCopyPrevious() {
   return useMutation(
     orpc.tasks.copyPrevious.mutationOptions({
       onSuccess: () => {
+        qc.invalidateQueries({ queryKey: orpc.calendar.key() });
         qc.invalidateQueries({ queryKey: orpc.tasks.key() });
         qc.invalidateQueries({ queryKey: orpc.today.key() });
       },

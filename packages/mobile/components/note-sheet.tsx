@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { PaperModal as Modal } from "@/components/paper-modal";
 import { SteadyButton } from "@/components/steady-button";
 
 const MIN_CHARS = 10;
@@ -33,6 +36,8 @@ export function NoteSheet({
   onClose,
 }: Props) {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -40,22 +45,27 @@ export function NoteSheet({
   }, [visible]);
 
   const remaining = MIN_CHARS - note.trim().length;
+  const close = () => { if (!submitting) onClose(); };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal accessibilityLabel="Completion note" visible={visible} transparent animationType="slide" onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" }}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
+        <Pressable style={{ flex: 1 }} onPress={close} />
         <KeyboardAvoidingView
+          style={{ width: "100%", maxWidth: 640, alignSelf: "center", maxHeight: height - insets.top - 12 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={0}
         >
-          <View
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
             style={{
-              backgroundColor: colors.cardElevated,
+              backgroundColor: colors.card,
               borderTopLeftRadius: 24,
               borderTopRightRadius: 24,
+            }}
+            contentContainerStyle={{
               padding: 24,
-              paddingBottom: 36,
+              paddingBottom: Math.max(24, insets.bottom + 16),
               gap: 14,
             }}
           >
@@ -63,11 +73,10 @@ export function NoteSheet({
               <View style={{ flex: 1 }}>
                 <Text
                   style={{
-                    color: colors.mutedForeground,
-                    fontFamily: Fonts?.semibold,
-                    fontSize: 11,
-                    letterSpacing: 1.2,
-                    textTransform: "uppercase",
+                    color: colors.foreground,
+                    fontFamily: Fonts.display,
+                    fontSize: 36,
+                    lineHeight: 41,
                   }}
                 >
                   What did you do?
@@ -76,25 +85,28 @@ export function NoteSheet({
                   style={{
                     marginTop: 4,
                     color: colors.foreground,
-                    fontFamily: Fonts?.semibold,
-                    fontSize: 18,
+                    fontFamily: Fonts.medium,
+                    fontSize: 14,
                   }}
                 >
                   {taskTitle}
                 </Text>
               </View>
-              <Pressable onPress={onClose} hitSlop={8}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close completion note" disabled={submitting} onPress={close} style={{minWidth:44,minHeight:44,alignItems:"center",justifyContent:"center"}}>
                 <Ionicons name="close" size={22} color={colors.mutedForeground} />
               </Pressable>
             </View>
 
             <TextInput
+              accessibilityLabel="Completion note"
+              editable={!submitting}
+              maxLength={1000}
               style={{
-                minHeight: 96,
+                minHeight: 132,
                 maxHeight: 160,
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: colors.border,
+                borderColor: colors.inputBorder,
                 backgroundColor: colors.card,
                 color: colors.foreground,
                 padding: 14,
@@ -148,7 +160,7 @@ export function NoteSheet({
               disabled={remaining > 0}
               loading={submitting}
             />
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </View>
     </Modal>

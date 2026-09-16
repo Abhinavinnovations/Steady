@@ -75,10 +75,11 @@ export function PartnerSection() {
   }
 
   const inputStyle = {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: 12,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.inputBorder,
     backgroundColor: colors.card,
     color: colors.foreground,
     paddingHorizontal: 16,
@@ -93,10 +94,12 @@ export function PartnerSection() {
       </View>
     );
   }
-  if (!d || !p) return null;
+  if (!d || !p) return <SteadyButton title="Retry accountability contact" variant="outline" onPress={() => { void profile.refetch(); void partner.refetch(); }}/>;
 
   return (
     <View>
+      <Text style={{ color: colors.foreground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 19, marginBottom: 12 }}>Email-code contacts are retired. Existing records are retained, but do not enable Challenge or receive alerts. Invite a contact here; nothing is sent automatically.</Text>
+      <SteadyButton title="Refresh contact status" variant="ghost" onPress={() => void partner.refetch()} disabled={partner.isFetching}/>
       <Text
         style={{
           color: colors.mutedForeground,
@@ -106,7 +109,7 @@ export function PartnerSection() {
           marginBottom: 12,
         }}
       >
-        For challenge tasks only. Your partner sees your streak and daily
+        For challenge tasks only. Your accountability contact sees your streak and daily
         done/missed — never task names or notes — and gets an email when you
         break the streak. Basic tasks stay invisible to them.
       </Text>
@@ -134,7 +137,7 @@ export function PartnerSection() {
                 lineHeight: 19,
               }}
             >
-              Partner features need one verified account per person. We sent a
+              Accountability contacts need one verified account per person. We sent a
               link to {p.email} when you signed up.
             </Text>
             <SteadyButton
@@ -178,7 +181,7 @@ export function PartnerSection() {
                 lineHeight: 18,
               }}
             >
-              They'll see nothing until they accept.
+              Challenge cannot start until they accept. Nothing is shared while pending.
             </Text>
             <SteadyButton
               title="Cancel invite"
@@ -216,7 +219,7 @@ export function PartnerSection() {
               about it by email when you break the streak.
             </Text>
             <SteadyButton
-              title="Remove partner"
+              title="Remove accountability contact"
               variant="outline"
               onPress={() => remove.mutate({})}
               loading={remove.isPending}
@@ -239,7 +242,9 @@ export function PartnerSection() {
             ) : null}
             <TextInput
               style={inputStyle}
-              placeholder="Partner's email"
+              placeholder="Accountability contact’s email"
+              accessibilityLabel="Accountability contact’s email"
+              autoComplete="email"
               placeholderTextColor={colors.mutedForeground}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -260,7 +265,7 @@ export function PartnerSection() {
                 lineHeight: 18,
               }}
             >
-              One partner at a time. Nothing is shared until they accept.
+              One accountability contact at a time. Nothing is shared until they accept.
             </Text>
           </View>
         </GlassCard>
@@ -282,7 +287,7 @@ export function PartnerSection() {
                   <Text style={{ fontFamily: Fonts?.semibold }}>
                     {inv.ownerName}
                   </Text>{" "}
-                  wants you as their accountability partner.
+                  wants you as their accountability contact.
                 </Text>
                 <Text
                   style={{
@@ -365,7 +370,7 @@ export function PartnerSection() {
                           w.todayStatus === "complete"
                             ? colors.success
                             : w.todayStatus === "missed"
-                              ? colors.destructive
+                              ? colors.warning
                               : colors.mutedForeground,
                       }}
                     />
@@ -424,6 +429,7 @@ export function PartnerSection() {
         </View>
       ) : null}
 
+      {remove.error || respond.error ? <Text accessibilityLiveRegion="polite" style={{color: colors.destructive, fontFamily: Fonts.sans}}>{(remove.error || respond.error)?.message}</Text> : null}
       {formError ? (
         <Text
           style={{

@@ -35,12 +35,17 @@ export function SteadyButton({
 
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityState={{disabled: !!(disabled || loading)}}
+      aria-disabled={!!(disabled || loading)}
       onPress={onPress}
       disabled={disabled || loading}
       style={({ pressed }) => [
         {
-          height: 52,
-          borderRadius: 14,
+          minHeight: 52,
+          paddingHorizontal: 18,
+          paddingVertical: 12,
+          borderRadius: 999,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: bg,

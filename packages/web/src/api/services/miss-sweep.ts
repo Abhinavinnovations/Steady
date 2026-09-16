@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../database";
 import * as schema from "../database/schema";
 import { localDate, shiftDay } from "../lib/dates";
@@ -8,10 +8,9 @@ import { sendEmail, emailShell } from "./email";
 /**
  * $0 "lazy cron": piggybacks on normal traffic. Whenever anyone uses the app,
  * this checks (at most once per interval) whether any user with CHALLENGE
- * tasks missed yesterday, and emails their verified accountability contact
- * and/or accepted partner. Basic tasks never trigger emails — fully private.
+ * tasks missed yesterday, and emails their accepted accountability contact. Basic tasks never trigger emails — fully private.
  * One alert per user per missed date — deduped via the miss_alerts table
- * (a single claim covers both sends).
+ * (one recipient from the invitation system).
  */
 
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
@@ -46,16 +45,7 @@ async function sweep() {
       .where(eq(schema.profiles.userId, userId));
     if (!p?.onboardedAt) continue;
 
-    // Who hears about it: verified contact and/or accepted partner.
-    const [contact] = await db
-      .select()
-      .from(schema.accountabilityContacts)
-      .where(
-        and(
-          eq(schema.accountabilityContacts.userId, userId),
-          isNotNull(schema.accountabilityContacts.verifiedAt),
-        ),
-      );
+    // Only contacts who accepted the invitation receive Challenge alerts.
     const [partner] = await db
       .select()
       .from(schema.partners)
@@ -65,7 +55,7 @@ async function sweep() {
           eq(schema.partners.status, "accepted"),
         ),
       );
-    const recipients = [contact?.email, partner?.partnerEmail].filter(
+    const recipients = [partner?.partnerEmail].filter(
       (e): e is string => !!e,
     );
     if (recipients.length === 0) continue;

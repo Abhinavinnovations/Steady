@@ -1,649 +1,130 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  useAudioRecorder,
-} from "expo-audio";
-import { File } from "expo-file-system";
+import { randomUUID } from "expo-crypto";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { SteadyButton } from "@/components/steady-button";
-import { useAssistantParse } from "@/queries/assistant";
-import { useCreateTask } from "@/queries/steady";
-import { useCategories, useCreateTodo } from "@/queries/todos";
-import { scheduleTaskReminder, scheduleTodoReminder } from "@/lib/reminders";
+import { PaperModal as Modal } from "@/components/paper-modal";
+import { SteadyButton } from "./steady-button";
+import { GlassSurface } from "./glass-surface";
+import { GradientBackdrop } from "./gradient-backdrop";
+import { VoiceDraftCard } from "./voice-draft-card";
+import { useVoiceCapture } from "@/hooks/use-voice-capture";
+import { useVoiceBatch } from "@/hooks/use-voice-batch";
+import { useAssistantParseMany } from "@/queries/assistant";
+import { useProfile } from "@/queries/steady";
+import { useCategories } from "@/queries/todos";
+import { authClient } from "@/lib/auth";
+import { contextualCard, type VoiceContext } from "@/lib/voice-context";
+import type { VoiceCard } from "@/lib/voice-draft-state";
+import { validCard, withDeadline } from "@/lib/voice-draft-state";
+import { voiceDiagnostic } from "@/lib/voice-diagnostics";
+import type { AssistantInput } from "../../web/src/shared/assistant-draft";
 
-type Draft = {
-  kind: "consistent" | "todo";
-  title: string;
-  durationMinutes: number | null;
-  date: string | null;
-  time: string | null;
-  reminder: boolean;
-  categoryName: string | null;
-};
-
-type Props = {
-  visible: boolean;
-  /** Today's date in the user's timezone ("YYYY-MM-DD"). */
-  todayISO: string;
-  onClose: () => void;
-};
-
-const isWeb = Platform.OS === "web";
-
-/** Chrome/Safari built-in speech recognition — free, on-device/browser. */
-function getWebRecognition(): any | null {
-  if (!isWeb || typeof window === "undefined") return null;
-  const w = window as any;
-  const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
-  return Ctor ? new Ctor() : null;
+type VoiceProps = { visible: boolean; todayISO: string; onClose: () => void; context?: VoiceContext; onStage?: (cards: VoiceCard[]) => void };
+export function VoiceSheet({ visible, todayISO, onClose, context, onStage }: VoiceProps) {
+  const { data: session } = authClient.useSession();
+  return visible && session?.user.id ? <VoiceSession key={`${session.user.id}:${context ?? "all"}`} owner={session.user.id} todayISO={todayISO} onClose={onClose} context={context} onStage={onStage}/> : null;
 }
-
-/**
- * Voice add — say "add gym at 4 for an hour, daily" and confirm the draft.
- * Web: browser speech recognition (or type it). Native: records with the mic
- * and the AI transcribes. Parsing runs on the app's built-in AI — no extra
- * account, no cost to the user.
- */
-export function VoiceSheet({ visible, todayISO, onClose }: Props) {
-  const colors = useColors();
-  const parse = useAssistantParse();
-  const createTask = useCreateTask();
-  const createTodo = useCreateTodo();
-  const categories = useCategories();
-
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recognitionRef = useRef<any>(null);
-
-  const [phase, setPhase] = useState<
-    "idle" | "listening" | "parsing" | "draft" | "saving"
-  >("idle");
-  const [typed, setTyped] = useState("");
-  const [transcript, setTranscript] = useState("");
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Full reset when the sheet transitions closed -> open.
-  const wasVisible = useRef(false);
-  useEffect(() => {
-    if (visible && !wasVisible.current) {
-      setPhase("idle");
-      setTyped("");
-      setTranscript("");
-      setDraft(null);
-      setError(null);
-    }
-    wasVisible.current = visible;
-  }, [visible]);
-
-  // Stop any web recognition when unmounting/closing.
-  useEffect(() => {
-    if (!visible && recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch {}
-      recognitionRef.current = null;
-    }
-  }, [visible]);
-
-  async function runParse(input: { transcript?: string; audioBase64?: string; mimeType?: string }) {
-    setPhase("parsing");
-    setError(null);
+function VoiceSession({ owner, todayISO, onClose, context, onStage }: Omit<VoiceProps, "visible"> & { owner: string }) {
+  const c = useColors(); const insets = useSafeAreaInsets(); const profile = useProfile(); const categories = useCategories();
+  const batch = useVoiceBatch(owner, todayISO, context === "challenge-setup"); const parser = useAssistantParseMany();
+  const [typed, setTyped] = useState(""); const [parsing, setParsing] = useState(false); const parseGuard = useRef(false); const stageGuard = useRef(false);
+  const [error, setError] = useState<string | null>(null); const [replaceConfirm, setReplaceConfirm] = useState(false);
+  const alive = useRef(true); const token = useRef(0); const lastInput = useRef<AssistantInput | null>(null);
+  useEffect(() => { const life = alive; const sessionToken = token; life.current = true; return () => { life.current = false; sessionToken.current++; lastInput.current = null; }; }, []);
+  async function runParse(input: AssistantInput) {
+    if (parseGuard.current || batch.submitted || batch.loading) return;
+    const current = ++token.current; parseGuard.current = true; lastInput.current = input; setParsing(true); setError(null); setReplaceConfirm(false);
+    voiceDiagnostic("parse", "batch");
     try {
-      const res = await parse.mutateAsync(input);
-      setTranscript(res.transcript);
-      setDraft(res.draft);
-      setPhase("draft");
-    } catch (e: any) {
-      setError(e?.message ?? "Didn't catch that — try again");
-      setPhase("idle");
-    }
+      const result = await withDeadline(parser.mutateAsync(input), 55_000);
+      if (!alive.current || current !== token.current) return;
+      setTyped(result.transcript);
+      batch.replace(result.drafts.map(draft => contextualCard({ ...draft, localId: randomUUID(), selected: true, status: "editable", categoryId: categories.data?.find(x => x.name.toLowerCase() === draft.categoryName?.toLowerCase())?.id ?? null }, context)));
+      lastInput.current = null;
+    } catch (e) { if (alive.current && current === token.current) setError(e instanceof Error ? e.message : "Could not read your tasks. Retry or type below."); }
+    finally { parseGuard.current = false; if (alive.current && current === token.current) setParsing(false); }
   }
-
-  async function startListening() {
-    setError(null);
-    if (isWeb) {
-      const rec = getWebRecognition();
-      if (!rec) {
-        setError("This browser can't listen — type it below instead");
-        return;
-      }
-      recognitionRef.current = rec;
-      rec.lang = "en-US";
-      rec.interimResults = true;
-      let finalText = "";
-      rec.onresult = (ev: any) => {
-        let interim = "";
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
-          const r = ev.results[i];
-          if (r.isFinal) finalText += r[0].transcript;
-          else interim += r[0].transcript;
-        }
-        setTranscript((finalText + interim).trim());
-      };
-      rec.onerror = () => {
-        setError("Mic didn't work here — type it below instead");
-        setPhase("idle");
-      };
-      rec.onend = () => {
-        recognitionRef.current = null;
-        const said = finalText.trim();
-        if (said.length >= 2) void runParse({ transcript: said });
-        else setPhase("idle");
-      };
-      setTranscript("");
-      setPhase("listening");
-      try {
-        rec.start();
-      } catch {
-        setError("Mic didn't work here — type it below instead");
-        setPhase("idle");
-      }
-      return;
-    }
-    // Native: record audio, let the AI transcribe it.
-    try {
-      const perm = await requestRecordingPermissionsAsync();
-      if (!perm.granted) {
-        setError("Mic permission denied — type it below instead");
-        return;
-      }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      setTranscript("");
-      setPhase("listening");
-    } catch {
-      setError("Couldn't start the mic — type it below instead");
-      setPhase("idle");
-    }
+  const capture = useVoiceCapture(runParse, setError);
+  const recording = capture.phase === "listening" || capture.phase === "paused";
+  const processing = parsing || capture.phase === "starting" || capture.phase === "reading" || capture.settling;
+  const review = batch.cards.length > 0;
+  const selected = batch.cards.filter(card => card.selected && card.status !== "saved");
+  const saved = batch.cards.filter(card => card.status === "saved").length;
+  const unknown = batch.cards.some(card => card.status === "unknown");
+  const allSaved = review && saved === batch.cards.length;
+  const input = { color: c.foreground, fontFamily: Fonts.sans, fontSize: 14, lineHeight: 23, backgroundColor: c.card, borderWidth: 1, borderColor: c.inputBorder, borderRadius: 16, padding: 15 };
+  const small = { color: c.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 20 };
+  function close() {
+    if (batch.busy && Platform.OS !== "web") Alert.alert("Close this batch?", "An in-flight save may still finish. Reopen voice capture to check its status; remaining cards will not be submitted.", [{ text: "Stay", style: "cancel" }, { text: "Close", onPress: onClose }]);
+    else onClose();
   }
-
-  async function stopListening() {
-    if (isWeb) {
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        setPhase("idle");
-      }
-      return;
-    }
-    try {
-      await recorder.stop();
-      await setAudioModeAsync({ allowsRecording: false });
-      const uri = recorder.uri;
-      if (!uri) throw new Error("no recording");
-      const base64 = await new File(uri).base64();
-      await runParse({ audioBase64: base64, mimeType: "audio/mp4" });
-    } catch {
-      setError("Recording failed — type it below instead");
-      setPhase("idle");
-    }
-  }
-
-  async function confirmDraft() {
-    if (!draft) return;
-    setPhase("saving");
-    setError(null);
-    // Category names map to the user's existing categories, case-insensitive.
-    const categoryId =
-      draft.categoryName != null
-        ? (categories.data?.find(
-            (c) => c.name.toLowerCase() === draft.categoryName!.toLowerCase(),
-          )?.id ?? null)
-        : null;
-    try {
-      if (draft.kind === "consistent") {
-        const task = await createTask.mutateAsync({
-          title: draft.title,
-          durationMinutes: draft.durationMinutes ?? undefined,
-          scheduledTime: draft.time ?? undefined,
-          reminderEnabled: !!(draft.time && draft.reminder),
-          categoryId: categoryId ?? undefined,
-        });
-        if (draft.time && draft.reminder)
-          void scheduleTaskReminder(task.id, task.title, draft.time);
-      } else {
-        const todo = await createTodo.mutateAsync({
-          title: draft.title,
-          dueDate: draft.date ?? todayISO,
-          durationMinutes: draft.durationMinutes ?? undefined,
-          scheduledTime: draft.time ?? undefined,
-          reminderEnabled: !!(draft.time && draft.reminder),
-          categoryId: categoryId ?? undefined,
-        });
-        if (draft.time && draft.reminder)
-          void scheduleTodoReminder(
-            todo.id,
-            todo.title,
-            draft.date ?? todayISO,
-            draft.time,
-          );
-      }
-      onClose();
-    } catch (e: any) {
-      setError(e?.message ?? "Couldn't add it — try again");
-      setPhase("draft");
-    }
-  }
-
-  const guide = [
-    "what the task is",
-    "how long it takes",
-    "what time",
-    "daily habit, or just once",
-  ];
-
-  const busy = phase === "parsing" || phase === "saving";
-
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.55)",
-          justifyContent: "flex-end",
-        }}
-      >
-        <Pressable style={{ flex: 1 }} onPress={busy ? undefined : onClose} />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={0}
-        >
-          <View
-            style={{
-              backgroundColor: colors.cardElevated,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              paddingHorizontal: 24,
-              paddingTop: 24,
-              paddingBottom: 36,
-              maxHeight: 640,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                marginBottom: 14,
-              }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: colors.mutedForeground,
-                    fontFamily: Fonts?.semibold,
-                    fontSize: 11,
-                    letterSpacing: 1.2,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Voice add
-                </Text>
-                <Text
-                  style={{
-                    marginTop: 4,
-                    color: colors.foreground,
-                    fontFamily: Fonts?.semibold,
-                    fontSize: 18,
-                  }}
-                >
-                  {phase === "draft" ? "Did I get it right?" : "Just say it"}
-                </Text>
-              </View>
-              <Pressable onPress={onClose} hitSlop={10} disabled={busy}>
-                <Ionicons name="close" size={22} color={colors.mutedForeground} />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              {(phase === "draft" || phase === "saving") && draft ? (
-                <View style={{ gap: 14 }}>
-                  {transcript ? (
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: Fonts?.sans,
-                        fontSize: 13,
-                        fontStyle: "italic",
-                      }}
-                    >
-                      “{transcript}”
-                    </Text>
-                  ) : null}
-                  <View
-                    style={{
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: 16,
-                      backgroundColor: colors.card,
-                      padding: 16,
-                      gap: 10,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <Ionicons
-                        name={draft.kind === "consistent" ? "repeat" : "checkbox-outline"}
-                        size={15}
-                        color={colors.primary}
-                      />
-                      <Text
-                        style={{
-                          color: colors.primary,
-                          fontFamily: Fonts?.semibold,
-                          fontSize: 11,
-                          letterSpacing: 1.2,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {draft.kind === "consistent"
-                          ? "Every day this month"
-                          : "One-off to-do"}
-                      </Text>
-                    </View>
-                    <Text
-                      style={{
-                        color: colors.foreground,
-                        fontFamily: Fonts?.semibold,
-                        fontSize: 17,
-                      }}
-                    >
-                      {draft.title}
-                    </Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      {draft.kind === "todo" && draft.date ? (
-                        <DraftChip icon="calendar-outline" label={draft.date === todayISO ? "Today" : draft.date} />
-                      ) : null}
-                      {draft.time ? (
-                        <DraftChip icon="time-outline" label={draft.time} />
-                      ) : null}
-                      {draft.durationMinutes ? (
-                        <DraftChip icon="timer-outline" label={`${draft.durationMinutes} min`} />
-                      ) : null}
-                      {draft.time && draft.reminder ? (
-                        <DraftChip icon="notifications-outline" label="Reminder" />
-                      ) : null}
-                      {draft.categoryName ? (
-                        <DraftChip icon="pricetag-outline" label={draft.categoryName} />
-                      ) : null}
-                    </View>
-                  </View>
-                  {error ? (
-                    <Text
-                      style={{
-                        color: colors.destructive,
-                        fontFamily: Fonts?.medium,
-                        fontSize: 13,
-                      }}
-                    >
-                      {error}
-                    </Text>
-                  ) : null}
-                  <SteadyButton
-                    title={phase === "saving" ? "Adding..." : "Add it"}
-                    disabled={busy}
-                    onPress={() => void confirmDraft()}
-                  />
-                  <Pressable
-                    onPress={() => {
-                      setDraft(null);
-                      setTranscript("");
-                      setPhase("idle");
-                    }}
-                    disabled={busy}
-                    style={{ alignItems: "center", paddingVertical: 4 }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: Fonts?.medium,
-                        fontSize: 13,
-                      }}
-                    >
-                      Try again
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={{ gap: 14 }}>
-                  <View style={{ gap: 6 }}>
-                    {guide.map((g) => (
-                      <View
-                        key={g}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: 4,
-                            height: 4,
-                            borderRadius: 2,
-                            backgroundColor: colors.primary,
-                          }}
-                        />
-                        <Text
-                          style={{
-                            color: colors.mutedForeground,
-                            fontFamily: Fonts?.sans,
-                            fontSize: 13,
-                          }}
-                        >
-                          {g}
-                        </Text>
-                      </View>
-                    ))}
-                    <Text
-                      style={{
-                        marginTop: 4,
-                        color: colors.mutedForeground,
-                        fontFamily: Fonts?.sans,
-                        fontSize: 12,
-                        fontStyle: "italic",
-                      }}
-                    >
-                      e.g. “add gym at 4 for an hour, daily” or “buy milk
-                      tomorrow at 6pm”
-                    </Text>
-                  </View>
-
-                  <Pressable
-                    onPress={() =>
-                      phase === "listening"
-                        ? void stopListening()
-                        : void startListening()
-                    }
-                    disabled={busy}
-                    style={{
-                      alignSelf: "center",
-                      width: 84,
-                      height: 84,
-                      borderRadius: 42,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor:
-                        phase === "listening" ? colors.destructive : colors.primary,
-                      opacity: busy ? 0.5 : 1,
-                    }}
-                  >
-                    {busy ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Ionicons
-                        name={phase === "listening" ? "stop" : "mic"}
-                        size={34}
-                        color="#fff"
-                      />
-                    )}
-                  </Pressable>
-                  <Text
-                    style={{
-                      textAlign: "center",
-                      color: colors.mutedForeground,
-                      fontFamily: Fonts?.medium,
-                      fontSize: 13,
-                    }}
-                  >
-                    {phase === "listening"
-                      ? "Listening... tap to finish"
-                      : phase === "parsing"
-                        ? "Working it out..."
-                        : "Tap to talk"}
-                  </Text>
-                  {phase === "listening" && transcript ? (
-                    <Text
-                      style={{
-                        textAlign: "center",
-                        color: colors.foreground,
-                        fontFamily: Fonts?.sans,
-                        fontSize: 14,
-                      }}
-                    >
-                      “{transcript}”
-                    </Text>
-                  ) : null}
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: Fonts?.sans,
-                        fontSize: 12,
-                      }}
-                    >
-                      or type it
-                    </Text>
-                    <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-                  </View>
-
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <TextInput
-                      value={typed}
-                      onChangeText={setTyped}
-                      placeholder="add gym at 4 for an hour, daily"
-                      placeholderTextColor={colors.mutedForeground}
-                      maxLength={300}
-                      editable={!busy}
-                      onSubmitEditing={() => {
-                        if (typed.trim().length >= 2)
-                          void runParse({ transcript: typed.trim() });
-                      }}
-                      style={{
-                        flex: 1,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        borderRadius: 14,
-                        backgroundColor: colors.card,
-                        paddingHorizontal: 16,
-                        paddingVertical: 12,
-                        color: colors.foreground,
-                        fontFamily: Fonts?.sans,
-                        fontSize: 14,
-                      }}
-                    />
-                    <Pressable
-                      onPress={() => {
-                        if (typed.trim().length >= 2)
-                          void runParse({ transcript: typed.trim() });
-                      }}
-                      disabled={busy || typed.trim().length < 2}
-                      style={{
-                        width: 46,
-                        borderRadius: 14,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: colors.primary,
-                        opacity: busy || typed.trim().length < 2 ? 0.4 : 1,
-                      }}
-                    >
-                      <Ionicons name="arrow-up" size={20} color="#fff" />
-                    </Pressable>
-                  </View>
-
-                  {error ? (
-                    <Text
-                      style={{
-                        color: colors.destructive,
-                        fontFamily: Fonts?.medium,
-                        fontSize: 13,
-                        textAlign: "center",
-                      }}
-                    >
-                      {error}
-                    </Text>
-                  ) : null}
-                </View>
-              )}
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
+  return <Modal accessibilityLabel="Voice task entry" visible animationType="slide" onRequestClose={close}><SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: c.background }}>
+    <GradientBackdrop/>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      <View style={{ paddingHorizontal: 22, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View><Text style={{ color: c.primary, fontFamily: Fonts.semibold, fontSize: 11, letterSpacing: 2 }}>STEADY / VOICE</Text><Text style={small}>Speak. Review. Add.</Text></View>
+        <GlassSurface radius={24}><Pressable accessibilityRole="button" accessibilityLabel="Close voice capture" onPress={close} style={{ width: 46, height: 46, alignItems: "center", justifyContent: "center" }}><Ionicons name="close" size={22} color={c.foreground}/></Pressable></GlassSurface>
       </View>
-    </Modal>
-  );
-}
-
-function DraftChip({ icon, label }: { icon: any; label: string }) {
-  const colors = useColors();
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 5,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 999,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-      }}
-    >
-      <Ionicons name={icon} size={12} color={colors.mutedForeground} />
-      <Text
-        style={{
-          color: colors.foreground,
-          fontFamily: Fonts?.medium,
-          fontSize: 12,
-        }}
-      >
-        {label}
-      </Text>
-    </View>
-  );
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 22, paddingBottom: 24, gap: 20, width: "100%", maxWidth: 640, alignSelf: "center" }}>
+        <Text accessibilityLiveRegion="polite" style={{ color: c.foreground, fontFamily: Fonts.display, fontSize: 42, lineHeight: 48, letterSpacing: -0.8 }}>{batch.loading ? "Checking earlier saves…" : parsing ? "Turning words into a plan…" : review ? allSaved ? "A little more headspace." : "Make it yours." : capture.phase === "paused" ? "Take your time." : recording ? "Go ahead. I’m listening." : "Make room in your mind."}</Text>
+        {batch.loading ? <ActivityIndicator color={c.primary}/> : review ? <View style={{ gap: 14 }}>
+          {!!typed && <View style={{ gap: 8 }}><Text style={small}>WHAT YOU SAID</Text><TextInput accessibilityLabel="Transcript" value={typed} onChangeText={setTyped} multiline maxLength={2000} editable={!batch.submitted && !batch.busy && !parsing} style={input}/>
+            {!batch.submitted && <SteadyButton title="Reinterpret edited words" variant="ghost" disabled={parsing || typed.trim().length < 2} onPress={() => setReplaceConfirm(true)}/>}
+            {replaceConfirm && <View style={{ gap: 8 }}><Text style={small}>This replaces all review cards, including your edits. Nothing has been saved.</Text><SteadyButton title="Replace review cards" disabled={parsing} onPress={() => void runParse({ transcript: typed.trim() })}/><SteadyButton title="Keep these cards" variant="ghost" onPress={() => setReplaceConfirm(false)}/></View>}
+          </View>}
+          <Text style={small}>{batch.submitted ? "Previously submitted cards keep their original task type and exact save details for safe recovery. Close this batch and reopen voice entry to start new contextual drafts after resolving pending saves." : context === "challenge-setup" ? "Daily Challenge commitments · title and focus time only. Selected entries are staged, not saved, until Lock in." : context === "basic-setup" ? "Daily Basic commitments · title and focus time only. Add selected saves drafts; Lock in confirms your month." : context === "todo" ? "To-dos only · independent of your consistency streak." : ""}</Text>
+          <Text accessibilityLiveRegion="polite" style={small}>{batch.cards.length} task{batch.cards.length === 1 ? "" : "s"} · {selected.length} selected{saved ? ` · ${saved} saved` : ""}</Text>
+          {batch.cards.map((card, index) => <VoiceDraftCard key={card.localId} card={card} index={index} today={todayISO} busy={batch.busy || parsing} context={card.payload ? undefined : context} onEdit={changes => batch.edit(card.localId, changes)} onSelect={() => batch.select(card.localId)}/>)}
+          {unknown && <SteadyButton title="Check saved status" variant="outline" disabled={batch.busy} onPress={() => void batch.reconcile()}/>}
+          {!batch.submitted && <SteadyButton title="Start again" variant="ghost" disabled={batch.busy || parsing} onPress={() => { batch.replace([]); setTyped(""); setError(null); }}/ >}
+        </View> : <View style={{ flex: 1, gap: 20 }}>
+          <Text style={{ ...small, fontSize: 15, lineHeight: 25 }}>“Buy groceries tomorrow. Read for twenty minutes every evening. Call Mum on Sunday.”</Text>
+          {capture.live && <Text style={small}>Live recognition uses your phone’s speech service, which may send audio online while you speak. Steady receives the recognized text only after Finish (automatically at 60 seconds or the text limit).</Text>}
+          <View style={{ alignItems: "center", paddingVertical: 25, gap: 20 }}>
+            <GlassSurface radius={88} style={{ padding: 22 }}><Pressable accessibilityRole="button" accessibilityLabel={recording ? "Finish recording" : "Start recording"} disabled={processing} onPress={() => { setError(null); voiceDiagnostic(recording ? "finish" : "capture", "batch"); void (recording ? capture.finish() : capture.start()); }} style={{ width: 116, height: 116, borderRadius: 58, backgroundColor: c.primary, alignItems: "center", justifyContent: "center" }}>{processing ? <ActivityIndicator color={c.primaryForeground} size="large"/> : <Ionicons name={recording ? "stop" : "mic"} size={42} color={c.primaryForeground}/>}</Pressable></GlassSurface>
+            {recording && <><Text style={{ color: c.foreground, fontFamily: Fonts.mono, fontSize: 21 }}>{capture.seconds} / 60 sec</Text>
+              <View accessibilityLabel={capture.meteringAvailable ? "Microphone level history" : "Microphone recording; level unavailable"} style={{ height: 48, width: "100%", flexDirection: "row", gap: 3, alignItems: "center", justifyContent: "center" }}>{capture.levels.map((level, i) => <View key={i} style={{ width: 3, height: 48 * level, backgroundColor: c.primary, borderRadius: 2 }}/>)}</View>
+              <View style={{ flexDirection: "row", gap: 12 }}><SteadyButton title={capture.phase === "paused" ? "Resume" : "Pause"} disabled={processing} variant="outline" onPress={() => void capture.pause()}/><SteadyButton title="Finish" disabled={processing} onPress={() => void capture.finish()}/></View></>}
+            <Text style={{ ...small, textAlign: "center" }}>{processing ? capture.phase === "starting" ? "Waiting for microphone permission or the speech service…" : "Finishing your words. You can close to cancel." : capture.live ? "Live words · English (US). Finish to review your tasks." : recording ? "Your transcript appears after Finish." : "Tap to record up to 20 tasks in 60 seconds."}</Text>
+            {capture.live && <View style={{ width: "100%", padding: 16, gap: 8, borderRadius: 18, backgroundColor: c.card, borderWidth: 1, borderColor: c.border }}>
+              <Text style={{ ...small, fontFamily: Fonts.semibold, letterSpacing: 1 }}>WORDS AS YOU SPEAK</Text>
+              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                <Text selectable accessibilityLabel="Live transcript" style={{ color: c.foreground, fontFamily: Fonts.sans, fontSize: 17, lineHeight: 28 }}>
+                  {capture.text}{capture.text && capture.interim ? " " : ""}<Text style={{ color: c.mutedForeground }}>{capture.interim || (!capture.text ? recording ? "Listening for your words…" : "Your words will appear here." : "")}</Text>
+                </Text>
+              </ScrollView>
+              <Text style={small}>Provisional words can change. You can edit the transcript after Finish.</Text>
+            </View>}
+            {!capture.live && !capture.liveAvailable && <Text style={{ ...small, textAlign: "center" }}>This preview transcribes after Finish. Live words require an installed build.</Text>}
+            {capture.liveAvailable && !processing && (!recording || capture.phase === "paused") && <SteadyButton
+              title={capture.live ? capture.text || capture.interim ? "Discard words and use recording" : "Use recording instead" : "Use live words"}
+              variant="ghost"
+              onPress={() => {
+                if (!capture.live) { setError(null); capture.useLive(); }
+                else if (capture.text || capture.interim) Alert.alert("Discard this dictation?", "Only the words in this capture will be cleared. Recording sends audio to Steady after Finish.", [{ text: "Keep words", style: "cancel" }, { text: "Use recording", onPress: () => { setError(null); void capture.useRecording(); } }]);
+                else { setError(null); void capture.useRecording(); }
+              }}/>}
+          </View>
+          {!recording && <View style={{ gap: 12 }}><Text style={small}>OR TYPE YOUR REQUEST</Text><TextInput accessibilityLabel="Task request" value={typed} onChangeText={setTyped} multiline maxLength={2000} placeholder="What’s on your mind?" placeholderTextColor={c.mutedForeground} editable={!processing} style={[input, { minHeight: 90 }]}/><SteadyButton title="Review tasks" disabled={processing || typed.trim().length < 2} onPress={() => void runParse({ transcript: typed.trim() })}/></View>}
+        </View>}
+        {(error || capture.error || batch.error) && <View accessibilityLiveRegion="polite" style={{ padding: 15, gap: 10, borderWidth: 1, borderColor: c.destructive, borderRadius: 16 }}><Text selectable style={{ ...small, color: c.destructive }}>{error || capture.error || batch.error}</Text>{lastInput.current && !parsing && !batch.submitted && <SteadyButton title="Retry last recording or request" variant="outline" onPress={() => void runParse(lastInput.current!)}/>} {capture.denied && Platform.OS !== "web" && <SteadyButton title="Open Settings" variant="outline" onPress={() => void Linking.openSettings()}/>}</View>}
+        {batch.notice && <Text accessibilityLiveRegion="polite" style={small}>{batch.notice}</Text>}
+        <Text style={{ ...small, fontSize: 11 }}>{capture.live ? "Your phone’s speech service may process audio online while listening. Only text goes to Steady after Finish." : "Audio goes to Steady’s AI service only after Finish."} Nothing is added until you confirm. {profile.data?.timezone ? `Schedule: ${profile.data.timezone}.` : ""}</Text>
+      </ScrollView>
+      {review && <View style={{ width: "100%", maxWidth: 640, alignSelf: "center", backgroundColor: c.card, borderTopWidth: 1, borderColor: c.border, paddingHorizontal: 20, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 14) }}>
+        <SteadyButton title={allSaved ? "Done" : batch.busy ? "Saving selected tasks…" : context === "challenge-setup" ? `Stage selected commitments (${selected.length})` : `Add selected tasks (${selected.length})`} disabled={!allSaved && (batch.busy || parsing || !selected.length || selected.some(card => !validCard(card, todayISO)))} onPress={allSaved ? onClose : () => {
+          if (context === "challenge-setup") {
+            if (stageGuard.current) return;
+            stageGuard.current = true;
+            try { if (!onStage) throw new Error("Setup is not ready. Close and try again."); onStage(selected); onClose(); }
+            catch (e) { stageGuard.current = false; setError(e instanceof Error ? e.message : "Could not stage commitments."); }
+          } else void batch.save();
+        }}/>
+        {saved > 0 && !allSaved && <Text style={{ ...small, textAlign: "center", marginTop: 5 }}>{saved} saved. Only unsaved selected cards will be submitted.</Text>}
+      </View>}
+    </KeyboardAvoidingView>
+  </SafeAreaView></Modal>;
 }

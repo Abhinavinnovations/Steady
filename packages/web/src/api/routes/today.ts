@@ -1,10 +1,15 @@
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { authed } from "../middleware/auth";
 import { db } from "../database";
 import * as schema from "../database/schema";
 import { localDate, localMonth } from "../lib/dates";
+import { validDate } from "../../shared/recurrence";
+const expectedDateSchema = z.string().refine(validDate, "Choose a real calendar date");
+function requireCurrentDate(expected: string, current: string) {
+  if (expected !== current) throw new ORPCError("CONFLICT", { message: "The date changed. Close this note and return to Today; previous days cannot be completed or undone." });
+}
 import { computeDayStatuses, activeStreak } from "../lib/streak";
 import { maybeSweepMissAlerts } from "../services/miss-sweep";
 
@@ -37,6 +42,8 @@ export const today = {
         ),
       );
 
+    const [anyConfirmed] = await db.select({ id: schema.commitments.id }).from(schema.commitments).where(and(eq(schema.commitments.userId, context.user.id), isNotNull(schema.commitments.confirmedAt))).limit(1);
+
     const taskList = await db
       .select()
       .from(schema.tasks)
@@ -63,6 +70,7 @@ export const today = {
         return {
           id: t.id,
           title: t.title,
+          flagged: t.flagged,
           durationMinutes: t.durationMinutes,
           categoryId: t.categoryId,
           scheduledTime: t.scheduledTime,
@@ -94,6 +102,7 @@ export const today = {
       mode: p.mode,
       displayName: p.displayName,
       confirmed: !!commitment?.confirmedAt,
+      hasCommittedBefore: !!anyConfirmed,
       tasks: activeTasks,
       doneCount,
       totalCount: activeTasks.length,
@@ -111,13 +120,15 @@ export const today = {
     .input(
       z.object({
         taskId: z.number(),
+        expectedDate: expectedDateSchema,
         note: z.string().trim().min(10, "Write at least a line about what you did").max(500),
       }),
     )
     .handler(async ({ context, input }) => {
       const p = await requireProfile(context.user.id);
       const day = localDate(p.timezone);
-      const month = localMonth(p.timezone);
+      requireCurrentDate(input.expectedDate, day);
+      const month = day.slice(0, 7);
 
       const [task] = await db
         .select()
@@ -149,7 +160,7 @@ export const today = {
         });
 
       const existing = await db
-        .select({ id: schema.completions.id })
+        .select()
         .from(schema.completions)
         .where(
           and(
@@ -157,8 +168,10 @@ export const today = {
             eq(schema.completions.localDate, day),
           ),
         );
-      if (existing.length > 0)
-        throw new ORPCError("CONFLICT", { message: "Already done today" });
+      if (existing.length > 0) {
+        if (existing[0].note === input.note.trim()) return existing[0];
+        throw new ORPCError("CONFLICT", { message: "Already done today with a different note" });
+      }
 
       const [completion] = await db
         .insert(schema.completions)
@@ -168,16 +181,21 @@ export const today = {
           localDate: day,
           note: input.note.trim(),
         })
+        .onConflictDoNothing()
         .returning();
-      return completion;
+      if (completion) return completion;
+      const [saved] = await db.select().from(schema.completions).where(and(eq(schema.completions.taskId, task.id), eq(schema.completions.localDate, day)));
+      if (saved?.note === input.note.trim()) return saved;
+      throw new ORPCError("CONFLICT", { message: "Already done today with a different note" });
     }),
 
   /** Undo a completion — same day only. */
   undo: authed
-    .input(z.object({ taskId: z.number() }))
+    .input(z.object({ taskId: z.number(), expectedDate: expectedDateSchema }))
     .handler(async ({ context, input }) => {
       const p = await requireProfile(context.user.id);
       const day = localDate(p.timezone);
+      requireCurrentDate(input.expectedDate, day);
       const res = await db
         .delete(schema.completions)
         .where(

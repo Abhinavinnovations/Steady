@@ -17,7 +17,7 @@
     "@types/node": "^24",
     "electron": "^30.0.1",
     "electron-builder": "^24.13.3",
-    "typescript": "^5.2.2",
+    "typescript": "7.0.1-rc",
     "vite": "^5.1.6",
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5"

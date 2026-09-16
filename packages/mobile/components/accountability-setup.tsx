@@ -77,10 +77,11 @@ export function AccountabilitySetup({
   }
 
   const inputStyle = {
-    height: 48,
+    minHeight: 52,
+    paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.inputBorder,
     backgroundColor: colors.card,
     color: colors.foreground,
     paddingHorizontal: 14,
@@ -108,13 +109,13 @@ export function AccountabilitySetup({
             </View>
           </View>
           <View style={{ flexDirection: "row", gap: 14 }}>
-            <Pressable onPress={() => { setChanging(true); setEmail(""); }} hitSlop={6}>
+            <Pressable accessibilityRole="button" onPress={() => { setChanging(true); setEmail(""); }} style={{ minHeight: 44, justifyContent: "center" }}>
               <Text style={{ color: colors.primary, fontFamily: Fonts?.medium, fontSize: 13 }}>
                 Change
               </Text>
             </Pressable>
             {showRemove ? (
-              <Pressable onPress={() => remove.mutate(undefined)} hitSlop={6}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Remove accountability contact" onPress={() => remove.mutate(undefined)} hitSlop={6} style={{ minHeight: 44, justifyContent: "center" }}>
                 <Text
                   style={{ color: colors.destructive, fontFamily: Fonts?.medium, fontSize: 13 }}
                 >
@@ -136,6 +137,8 @@ export function AccountabilitySetup({
             . Ask them for it, then enter it here.
           </Text>
           <TextInput
+            accessibilityLabel="Contact verification code"
+            autoComplete="one-time-code"
             style={[inputStyle, { letterSpacing: 6, textAlign: "center", fontFamily: Fonts?.semibold }]}
             placeholder="••••••"
             placeholderTextColor={colors.mutedForeground}
@@ -150,13 +153,13 @@ export function AccountabilitySetup({
             disabled={code.trim().length !== 6}
             loading={verify.isPending}
           />
-          <View style={{ flexDirection: "row", justifyContent: "center", gap: 18 }}>
-            <Pressable onPress={resendCode} disabled={resend.isPending} hitSlop={6}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 18 }}>
+            <Pressable accessibilityRole="button" onPress={resendCode} disabled={resend.isPending} style={{ minHeight: 44, justifyContent: "center" }}>
               <Text style={{ color: colors.primary, fontFamily: Fonts?.medium, fontSize: 13 }}>
                 {resend.isPending ? "Sending..." : "Resend code"}
               </Text>
             </Pressable>
-            <Pressable onPress={() => { setChanging(true); setEmail(""); }} hitSlop={6}>
+            <Pressable accessibilityRole="button" onPress={() => { setChanging(true); setEmail(""); }} style={{ minHeight: 44, justifyContent: "center" }}>
               <Text
                 style={{ color: colors.mutedForeground, fontFamily: Fonts?.medium, fontSize: 13 }}
               >
@@ -174,6 +177,8 @@ export function AccountabilitySetup({
             they don't need the app.
           </Text>
           <TextInput
+            accessibilityLabel="Accountability contact email"
+            autoComplete="email"
             style={inputStyle}
             placeholder="their@email.com"
             placeholderTextColor={colors.mutedForeground}
@@ -192,9 +197,10 @@ export function AccountabilitySetup({
           />
           {changing ? (
             <Pressable
+              accessibilityRole="button"
               onPress={() => setChanging(false)}
               hitSlop={6}
-              style={{ alignSelf: "center" }}
+              style={{ alignSelf: "center", minHeight: 44, justifyContent: "center" }}
             >
               <Text
                 style={{ color: colors.mutedForeground, fontFamily: Fonts?.medium, fontSize: 13 }}

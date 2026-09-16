@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -9,10 +8,13 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { PaperModal as Modal } from "@/components/paper-modal";
 import { SteadyButton } from "@/components/steady-button";
 import { DurationWheel } from "@/components/duration-wheel";
 import { CategoryPicker, TimeField } from "@/components/schedule-fields";
@@ -53,6 +55,8 @@ export function AddTaskSheet({
   onClose,
 }: Props) {
   const colors = useColors();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
   const [duration, setDuration] = useState<number | null>(null);
   const [categoryId, setCategoryId] = useState<number | null>(null);
@@ -83,6 +87,7 @@ export function AddTaskSheet({
 
   return (
     <Modal
+      accessibilityLabel={isEdit ? "Task settings" : "Add a task"}
       visible={visible}
       transparent
       animationType="slide"
@@ -97,18 +102,19 @@ export function AddTaskSheet({
       >
         <Pressable style={{ flex: 1 }} onPress={onClose} />
         <KeyboardAvoidingView
+          style={{ width: "100%", maxWidth: 640, alignSelf: "center" }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={0}
         >
           <View
             style={{
-              backgroundColor: colors.cardElevated,
+              backgroundColor: colors.card,
               borderTopLeftRadius: 24,
               borderTopRightRadius: 24,
               paddingHorizontal: 24,
               paddingTop: 24,
-              paddingBottom: 36,
-              maxHeight: 640,
+              paddingBottom: Math.max(24, insets.bottom + 16),
+              maxHeight: Math.min(760, height - insets.top - 12),
             }}
           >
             <View
@@ -130,14 +136,15 @@ export function AddTaskSheet({
                   style={{
                     marginTop: 4,
                     color: colors.foreground,
-                    fontFamily: Fonts?.semibold,
-                    fontSize: 18,
+                    fontFamily: Fonts.display,
+                    fontSize: 34,
+                    lineHeight: 40,
                   }}
                 >
                   {isEdit ? editing.title : "Add a task"}
                 </Text>
               </View>
-              <Pressable onPress={onClose} hitSlop={10}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close task editor" onPress={onClose} style={{ minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center" }}>
                 <Ionicons name="close" size={22} color={colors.mutedForeground} />
               </Pressable>
             </View>
@@ -149,6 +156,7 @@ export function AddTaskSheet({
               <View style={{ gap: 14 }}>
                 {!isEdit ? (
                   <TextInput
+                    accessibilityLabel="Task title"
                     value={title}
                     onChangeText={setTitle}
                     placeholder="e.g. Read 10 pages"
@@ -157,7 +165,7 @@ export function AddTaskSheet({
                     editable={!submitting}
                     style={{
                       borderWidth: 1,
-                      borderColor: colors.border,
+                      borderColor: colors.inputBorder,
                       borderRadius: 14,
                       backgroundColor: colors.card,
                       paddingHorizontal: 16,
@@ -204,6 +212,10 @@ export function AddTaskSheet({
                     {(["basic", "challenge"] as const).map((m) => (
                       <Pressable
                         key={m}
+                        accessibilityRole="radio"
+                        accessibilityLabel={`${m} task mode`}
+                        accessibilityState={{ checked: mode === m, disabled: submitting }}
+                        aria-checked={mode === m}
                         disabled={submitting}
                         onPress={() => {
                           setMode(m);
@@ -211,6 +223,8 @@ export function AddTaskSheet({
                         }}
                         style={{
                           flex: 1,
+                          minHeight: 44,
+                          justifyContent: "center",
                           paddingVertical: 8,
                           borderRadius: 9,
                           alignItems: "center",
@@ -245,8 +259,8 @@ export function AddTaskSheet({
                     >
                       Challenge means someone hears about it when you break your
                       streak, and this task ranks on the challenge board. Basic
-                      stays fully private. Challenge needs a partner or verified
-                      contact — set one up in Profile first.
+                      stays fully private. Challenge needs an accepted accountability
+                      contact — invite one in Profile and wait for acceptance.
                     </Text>
                   ) : null}
                 </View>
@@ -299,6 +313,7 @@ export function AddTaskSheet({
                       Daily reminder
                     </Text>
                     <Switch
+                      accessibilityLabel="Daily reminder"
                       value={reminder}
                       onValueChange={setReminder}
                       trackColor={{ true: colors.primary }}

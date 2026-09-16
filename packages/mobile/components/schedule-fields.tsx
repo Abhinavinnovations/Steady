@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -15,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useCategories, useCreateCategory } from "@/queries/todos";
+import { useProfile } from "@/queries/steady";
 
 /**
  * Shared schedule inputs for the add/edit sheets:
@@ -32,7 +34,6 @@ export function formatTime12(time: string): string {
   return `${hh}:${String(m).padStart(2, "0")} ${am ? "am" : "pm"}`;
 }
 
-const ITEM_H = 42;
 const VISIBLE = 3;
 
 /** Minimal snapping wheel (haptic detents, no audio) for hour/minute columns. */
@@ -41,13 +42,19 @@ function SnapWheel({
   index,
   onIndexChange,
   width,
+  disabled,
+  label,
 }: {
+  disabled: boolean;
+  label: string;
   items: string[];
   index: number;
   onIndexChange: (idx: number) => void;
   width: number;
 }) {
   const colors = useColors();
+  const { fontScale } = useWindowDimensions();
+  const ITEM_H = Math.max(44, Math.ceil(26 * fontScale));
   const indexRef = useRef(index);
   const listRef = useRef<FlatList<string>>(null);
   // While a programmatic sync is in flight, scroll events are echoes of old
@@ -75,7 +82,7 @@ function SnapWheel({
       }, 150);
       return () => clearTimeout(t);
     }
-  }, [index]);
+  }, [index, ITEM_H]);
 
   const tick = useCallback(() => {
     try {
@@ -87,6 +94,7 @@ function SnapWheel({
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (disabled) return;
       const idx = Math.min(
         items.length - 1,
         Math.max(0, Math.round(e.nativeEvent.contentOffset.y / ITEM_H)),
@@ -101,7 +109,7 @@ function SnapWheel({
         onIndexChange(idx);
       }
     },
-    [items.length, onIndexChange, tick],
+    [items.length, onIndexChange, tick, disabled, ITEM_H],
   );
 
   return (
@@ -132,6 +140,8 @@ function SnapWheel({
         }}
       />
       <FlatList
+        key={ITEM_H}
+        scrollEnabled={!disabled}
         ref={listRef}
         data={items}
         keyExtractor={(item, i) => `${i}-${item}`}
@@ -145,7 +155,7 @@ function SnapWheel({
         scrollEventThrottle={16}
         nestedScrollEnabled
         renderItem={({ item, index: i }) => (
-          <View
+          <Pressable accessibilityRole="radio" accessibilityLabel={`${label} ${item}`} accessibilityState={{checked:i===index,disabled}} aria-checked={i===index} disabled={disabled} onPress={()=>onIndexChange(i)}
             style={{ height: ITEM_H, alignItems: "center", justifyContent: "center" }}
           >
             <Text
@@ -159,7 +169,7 @@ function SnapWheel({
             >
               {item}
             </Text>
-          </View>
+          </Pressable>
         )}
       />
     </View>
@@ -179,24 +189,30 @@ const MINUTES = Array.from({ length: 12 }, (_, i) =>
 export function TimeField({
   value,
   onChange,
+  disabled = false,
 }: {
+  disabled?: boolean;
   value: string | null;
   onChange: (time: string | null) => void;
 }) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
+  const profile = useProfile();
+  const timezone = profile.data?.timezone ?? "UTC";
+  const [rawTime,setRawTime] = useState(value ?? "");
+  useEffect(()=>setRawTime(value??""),[value]);
 
   const [hourIdx, minuteIdx] = useMemo(() => {
     if (!value) {
-      const next = new Date();
-      next.setHours(next.getHours() + 1);
-      return [next.getHours(), 0];
+      const hour=Number(new Intl.DateTimeFormat("en-GB",{timeZone:timezone,hour:"2-digit",hourCycle:"h23"}).format(new Date()));
+      return [(hour+1)%24, 0];
     }
     const [h, m] = value.split(":").map(Number);
     return [h, Math.min(11, Math.round(m / 5))];
-  }, [value]);
+  }, [value, timezone]);
 
   function emit(h: number, mIdx: number) {
+    if (disabled) return;
     onChange(`${String(h).padStart(2, "0")}:${MINUTES[mIdx]}`);
   }
 
@@ -214,15 +230,16 @@ export function TimeField({
             textTransform: "uppercase",
           }}
         >
-          Time (optional)
+          Time (optional) · {timezone}
         </Text>
         {value ? (
-          <Pressable
+          <Pressable disabled={disabled} accessibilityRole="button"
             onPress={() => {
               onChange(null);
               setOpen(false);
             }}
             hitSlop={8}
+            style={{ minHeight: 44, justifyContent: "center" }}
           >
             <Text
               style={{
@@ -237,7 +254,7 @@ export function TimeField({
         ) : null}
       </View>
       {!open ? (
-        <Pressable
+        <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel={value ? `Change time, ${formatTime12(value)}` : "Set a time"}
           onPress={() => {
             setOpen(true);
             if (!value) emit(hourIdx, minuteIdx);
@@ -253,6 +270,7 @@ export function TimeField({
             borderRadius: 999,
             paddingHorizontal: 14,
             paddingVertical: 9,
+            minHeight: 44,
             opacity: pressed ? 0.8 : 1,
           })}
         >
@@ -272,8 +290,9 @@ export function TimeField({
           </Text>
         </Pressable>
       ) : (
-        <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
           <SnapWheel
+            disabled={disabled} label="Hour"
             items={HOURS}
             index={hourIdx}
             width={110}
@@ -289,12 +308,13 @@ export function TimeField({
             :
           </Text>
           <SnapWheel
+            disabled={disabled} label="Minute"
             items={MINUTES}
             index={minuteIdx}
             width={80}
             onIndexChange={(i) => emit(hourIdx, i)}
           />
-          <Pressable onPress={() => setOpen(false)} hitSlop={8}>
+          <Pressable disabled={disabled} accessibilityRole="button" onPress={() => setOpen(false)} hitSlop={8} style={{ minHeight: 44, minWidth: 44, justifyContent: "center" }}>
             <Text
               style={{
                 color: colors.primary,
@@ -307,6 +327,7 @@ export function TimeField({
           </Pressable>
         </View>
       )}
+      <TextInput accessibilityLabel="Exact time in profile timezone, HH:mm" editable={!disabled} value={rawTime} placeholder="HH:mm · or leave blank" placeholderTextColor={colors.mutedForeground} maxLength={5} onChangeText={text=>{setRawTime(text);if(text==="")onChange(null);else if(/^([01]\d|2[0-3]):[0-5]\d$/.test(text))onChange(text);}} onBlur={()=>setRawTime(value??"")} style={{minHeight:44,borderWidth:1,borderColor:colors.inputBorder,borderRadius:12,paddingHorizontal:12,paddingVertical:10,color:colors.foreground,fontFamily:Fonts.sans}} />
     </View>
   );
 }
@@ -379,6 +400,8 @@ export function DateChips({
                   borderRadius: 999,
                   paddingHorizontal: 14,
                   paddingVertical: 8,
+                  minHeight: 44,
+                  justifyContent: "center",
                   opacity: pressed ? 0.8 : 1,
                 })}
               >
@@ -406,7 +429,9 @@ export function DateChips({
 export function CategoryPicker({
   value,
   onChange,
+  disabled = false,
 }: {
+  disabled?: boolean;
   value: number | null;
   onChange: (categoryId: number | null) => void;
 }) {
@@ -418,7 +443,7 @@ export function CategoryPicker({
 
   async function submitNew() {
     const name = newName.trim();
-    if (!name) return;
+    if (!name || disabled || createCategory.isPending) return;
     try {
       const cat = await createCategory.mutateAsync({ name });
       onChange(cat.id);
@@ -449,7 +474,9 @@ export function CategoryPicker({
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-          <Pressable
+          <Pressable disabled={disabled} accessibilityRole="button"
+            accessibilityState={{ selected: value === null, disabled }}
+            aria-pressed={value === null}
             onPress={() => onChange(null)}
             style={({ pressed }) => ({
               borderWidth: 1,
@@ -458,6 +485,8 @@ export function CategoryPicker({
               borderRadius: 999,
               paddingHorizontal: 14,
               paddingVertical: 8,
+                  minHeight: 44,
+                  justifyContent: "center",
               opacity: pressed ? 0.8 : 1,
             })}
           >
@@ -474,7 +503,9 @@ export function CategoryPicker({
           {list.map((c) => {
             const active = value === c.id;
             return (
-              <Pressable
+              <Pressable disabled={disabled} accessibilityRole="button"
+                accessibilityState={{ selected: active, disabled }}
+                aria-pressed={active}
                 key={c.id}
                 onPress={() => onChange(active ? null : c.id)}
                 style={({ pressed }) => ({
@@ -484,6 +515,8 @@ export function CategoryPicker({
                   borderRadius: 999,
                   paddingHorizontal: 14,
                   paddingVertical: 8,
+                  minHeight: 44,
+                  justifyContent: "center",
                   opacity: pressed ? 0.8 : 1,
                 })}
               >
@@ -502,6 +535,8 @@ export function CategoryPicker({
           {addingNew ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <TextInput
+                editable={!disabled}
+                accessibilityLabel="New category"
                 value={newName}
                 onChangeText={setNewName}
                 placeholder="New category"
@@ -515,13 +550,14 @@ export function CategoryPicker({
                   backgroundColor: colors.card,
                   paddingHorizontal: 14,
                   paddingVertical: 7,
+                  minHeight: 44,
                   minWidth: 130,
                   color: colors.foreground,
                   fontFamily: Fonts?.sans,
                   fontSize: 13,
                 }}
               />
-              <Pressable onPress={submitNew} hitSlop={8}>
+              <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel="Create category" onPress={submitNew} hitSlop={8} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
                 <Ionicons
                   name="checkmark-circle"
                   size={26}
@@ -532,7 +568,9 @@ export function CategoryPicker({
                   }
                 />
               </Pressable>
-              <Pressable
+              <Pressable disabled={disabled} accessibilityRole="button"
+                accessibilityLabel="Cancel new category"
+                style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}
                 onPress={() => {
                   setAddingNew(false);
                   setNewName("");
@@ -543,7 +581,7 @@ export function CategoryPicker({
               </Pressable>
             </View>
           ) : (
-            <Pressable
+            <Pressable disabled={disabled} accessibilityRole="button"
               onPress={() => setAddingNew(true)}
               style={({ pressed }) => ({
                 flexDirection: "row",
@@ -555,6 +593,8 @@ export function CategoryPicker({
                 borderRadius: 999,
                 paddingHorizontal: 12,
                 paddingVertical: 8,
+                  minHeight: 44,
+                  justifyContent: "center",
                 opacity: pressed ? 0.7 : 1,
               })}
             >

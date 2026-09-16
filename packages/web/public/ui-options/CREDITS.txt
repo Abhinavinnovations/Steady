@@ -1,0 +1,22 @@
+STEADY WELCOME STUDIES — ASSET CREDITS
+
+Paper texture: Paper 003, ambientCG / Lennart Demes.
+Source: https://ambientcg.com/view?id=Paper003
+License: CC0 1.0, https://creativecommons.org/publicdomain/zero/1.0/
+Color and normal maps combined with fixed diffuse lighting, converted to WebP; displayed with tint/contrast and fade in CSS.
+
+Natural Paper: Mihaela Hinayon. White Linen: Fabian Schultz.
+Source: Subtle Patterns, transparent versions via Mike Hearn / Transparent Textures.
+https://www.transparenttextures.com/natural-paper.html
+https://www.transparenttextures.com/white-linen.html
+License: Creative Commons Attribution-ShareAlike 3.0 Unported.
+https://creativecommons.org/licenses/by-sa/3.0/
+https://github.com/AtleMo/SubtlePatterns
+Local PNG files unmodified. CSS opacity, scale and color/background treatment are adaptations under the same CC BY-SA 3.0 license. This applies to those texture adaptations, not unrelated application code.
+
+Libre Caslon Display and DM Sans: Google Fonts, SIL Open Font License 1.1.
+https://github.com/google/fonts/tree/main/ofl/librecaslondisplay
+https://github.com/google/fonts/tree/main/ofl/dmsans
+Full license and copyright text: caslon-OFL.txt and dm-sans-OFL.txt alongside this file.
+
+No generated media used. All interface text remains live, accessible text.

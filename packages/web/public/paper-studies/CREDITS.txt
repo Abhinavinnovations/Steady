@@ -1,0 +1,7 @@
+Steady — White Paper application studies (preview only)
+
+Paper texture: cropped from the blank upper portion of the user's supplied welcome-screen reference. No text, phone frame, or other UI pixels are reused. Used solely for this requested design preview; user-supplied source, no independent license claim.
+
+Fonts: Libre Caslon Display and DM Sans, locally hosted in /ui-options/. SIL Open Font License notices: /ui-options/caslon-OFL.txt and /ui-options/dm-sans-OFL.txt.
+
+All task names, account details, ranks, notes, and dates in these studies are illustrative sample data, not a live account. Screens are web-rendered representations based on the existing mobile screen source. Liquid glass is a CSS browser treatment; native-device rendering is not tested. Existing app screens, accounts, and database are unchanged.

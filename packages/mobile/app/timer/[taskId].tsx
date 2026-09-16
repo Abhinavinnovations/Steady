@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   ImageBackground,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useKeepAwake } from "expo-keep-awake";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusAwake } from "@/hooks/use-focus-awake";
+import { focusKey, remainingAt } from "@/lib/focus-progress";
+import { readFocus, saveFocus } from "@/lib/focus-storage";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useToday } from "@/queries/steady";
 import { useTodos, useToggleTodo } from "@/queries/todos";
 import { cancelReminder, todoReminderId } from "@/lib/reminders";
@@ -29,8 +34,8 @@ import { cancelReminder, todoReminderId } from "@/lib/reminders";
  *   off. Casual list, no note required.
  *
  * Progress persists per item per local day: stop a 60-min task at 40:00 left
- * and reopening it later the same day resumes from 40:00. A new day (or a
- * natural finish) resets to the full duration.
+ * and reopening it later the same day resumes from 40:00. A new day resets
+ * consistent tasks; each to-do occurrence keeps its own balance, including zero.
  */
 
 const IMAGES: Record<string, ReturnType<typeof require>> = {
@@ -67,66 +72,63 @@ function fmt(totalSeconds: number) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-/**
- * Remaining-seconds storage key, scoped to one item on one local day.
- * To-dos get a `t` marker so ids never collide with consistent tasks.
- */
-const KEY_PREFIX = "steady.timer.";
-function storageKey(kind: "task" | "todo", id: number, localDay: string) {
-  return `${KEY_PREFIX}${kind === "todo" ? "t" : ""}${id}.${localDay}`;
-}
-
 export default function TimerScreen() {
-  useKeepAwake();
+  useFocusAwake();
   const colors = useColors();
+  const scheme = useColorScheme();
+  const { width, fontScale } = useWindowDimensions();
   const router = useRouter();
-  const { taskId, type } = useLocalSearchParams<{
+  const { taskId, type, occurrenceDate } = useLocalSearchParams<{
     taskId: string;
     type?: string;
+    occurrenceDate?: string;
   }>();
   const isTodo = type === "todo";
   const today = useToday();
   const todos = useTodos();
   const toggleTodo = useToggleTodo();
 
-  const item = useMemo(() => {
+  const liveItem = useMemo(() => {
     if (isTodo) {
       const t = todos.data?.todos.find((x) => String(x.id) === String(taskId));
-      if (!t || t.completedAt) return undefined;
-      return { id: t.id, title: t.title, durationMinutes: t.durationMinutes };
+      if (!t || t.completedAt || (occurrenceDate && t.occurrenceDate !== occurrenceDate)) return undefined;
+      return { id: t.id, title: t.title, durationMinutes: t.durationMinutes, day: t.occurrenceDate };
     }
     const t = today.data?.tasks.find((x) => String(x.id) === String(taskId));
     if (!t) return undefined;
-    return { id: t.id, title: t.title, durationMinutes: t.durationMinutes };
-  }, [isTodo, todos.data, today.data, taskId]);
+    return { id: t.id, title: t.title, durationMinutes: t.durationMinutes, day: today.data!.localDate };
+  }, [isTodo, todos.data, today.data, taskId, occurrenceDate]);
+  // Freeze identity/date once armed, even if a refetch crosses midnight.
+  const captured = useRef<typeof liveItem>(undefined);
+  if (!captured.current && liveItem) captured.current = liveItem;
+  const item = captured.current;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const sourceReady = isTodo ? todos.isSuccess : today.isSuccess;
-  const localDay =
-    (isTodo ? todos.data?.today : today.data?.localDate) ?? null;
-  const keyMarker = isTodo ? "t" : "";
+  const localDay = item?.day ?? null;
   const storeKey =
-    item && localDay ? storageKey(isTodo ? "todo" : "task", item.id, localDay) : null;
+    item && localDay ? focusKey({ kind: isTodo ? "todo" : "task", id: item.id, day: localDay }) : null;
 
   const totalSeconds = (item?.durationMinutes ?? 0) * 60;
   const [remaining, setRemaining] = useState<number | null>(null);
   const [resumedFrom, setResumedFrom] = useState<number | null>(null);
   const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
   const endRef = useRef<number | null>(null);
   const finishedRef = useRef(false);
   const latestRef = useRef<number | null>(null);
   const lastSaveRef = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
-  /** Save (or clear) the remaining seconds for today. Fire-and-forget. */
+  /** Checkpoint the remaining seconds, including zero. */
   const persist = useCallback(
     (left: number | null) => {
       if (!storeKey || left === null) return;
-      if (left > 0 && left < totalSeconds) {
-        void AsyncStorage.setItem(storeKey, String(left)).catch(() => {});
-      } else {
-        void AsyncStorage.removeItem(storeKey).catch(() => {});
-      }
+      void saveFocus(storeKey, left).catch(() => setSaveError("Focus progress could not be stored on this device. Keep this screen open and check device storage."));
     },
-    [storeKey, totalSeconds],
+    [storeKey],
   );
 
   // Arm the countdown once the item is known — resuming today's saved
@@ -137,20 +139,11 @@ export default function TimerScreen() {
     void (async () => {
       let start = totalSeconds;
       try {
-        const raw = await AsyncStorage.getItem(storeKey);
-        const saved = raw === null ? Number.NaN : Number(raw);
-        if (Number.isFinite(saved) && saved > 0 && saved < totalSeconds) {
-          start = Math.round(saved);
-        }
-        // Drop stale keys from earlier days for this item.
-        const all = await AsyncStorage.getAllKeys();
-        const stale = all.filter(
-          (k) =>
-            k.startsWith(`${KEY_PREFIX}${keyMarker}${item.id}.`) && k !== storeKey,
-        );
-        if (stale.length > 0) await AsyncStorage.multiRemove(stale);
+        start = await readFocus(storeKey, totalSeconds);
       } catch {
-        // Storage unavailable — just start fresh.
+        // Never silently reset elapsed work if local storage cannot be read.
+        if (!cancelled) setSaveError("Could not read saved focus progress. Close and reopen after checking device storage.");
+        return;
       }
       if (cancelled) return;
       latestRef.current = start;
@@ -161,7 +154,7 @@ export default function TimerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [item, storeKey, remaining, totalSeconds, keyMarker]);
+  }, [item, storeKey, remaining, totalSeconds]);
 
   // Tick.
   const armed = remaining !== null;
@@ -186,52 +179,70 @@ export default function TimerScreen() {
   // Persist whatever is left when the screen unmounts (back gesture, etc.).
   useEffect(() => {
     return () => {
-      if (!finishedRef.current) persist(latestRef.current);
+      if (!finishedRef.current) persist(remainingAt(endRef.current, latestRef.current, pausedRef.current, Date.now()));
     };
   }, [persist]);
 
-  // Natural finish → clear saved progress, then:
+  // Background/app-switch saves a fresh balance, not the previous display tick.
+  useEffect(() => {
+    const checkpoint = () => { if (!finishedRef.current) persist(remainingAt(endRef.current, latestRef.current, pausedRef.current, Date.now())); };
+    const sub = AppState.addEventListener("change", state => { if (state !== "active") checkpoint(); });
+    if (Platform.OS === "web") window.addEventListener("pagehide", checkpoint);
+    return () => { sub.remove(); if (Platform.OS === "web") window.removeEventListener("pagehide", checkpoint); };
+  }, [persist]);
+
+  // Natural finish → retain zero remaining, then:
   // consistent task = back to Today with the note sheet;
   // to-do = check it off and go back. No note, no ceremony.
   useEffect(() => {
     if (remaining === 0 && !finishedRef.current) {
       finishedRef.current = true;
-      if (storeKey) void AsyncStorage.removeItem(storeKey).catch(() => {});
-      try {
-        if (Platform.OS !== "web")
-          void Haptics.notificationAsync(
-            Haptics.NotificationFeedbackType.Success,
-          );
-      } catch {
-        // fine
-      }
-      if (isTodo && item) {
-        void cancelReminder(todoReminderId(item.id));
-        toggleTodo.mutate({ id: item.id, done: true });
-        router.replace("/(tabs)");
-      } else {
-        router.replace({
-          pathname: "/(tabs)",
-          params: { note: String(taskId) },
-        });
-      }
+      void (async () => {
+        try {
+          // Do not leave with an unstored zero: reopening must not restart the target.
+          if (storeKey) await saveFocus(storeKey, 0);
+          if (!mounted.current) return;
+          if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          if (isTodo && item) {
+            await toggleTodo.mutateAsync({ id: item.id, done: true, occurrenceDate: item.day });
+            await cancelReminder(`${todoReminderId(item.id)}:${item.day}`);
+            if (mounted.current) router.replace("/(tabs)");
+          } else if (item && today.data?.localDate !== item.day) {
+            setSaveError("The date changed during focus. Return to Today to review your current commitment.");
+          } else {
+            router.replace({ pathname: "/(tabs)", params: { note: String(taskId), noteDate: item?.day } });
+          }
+        } catch (error) {
+          if (mounted.current) setSaveError(error instanceof Error ? error.message : "Could not store focus completion. Check device storage and connectivity, then retry.");
+        }
+      })();
     }
-  }, [remaining, router, taskId, storeKey, isTodo, item, toggleTodo]);
+  }, [remaining, router, taskId, storeKey, isTodo, item, toggleTodo, today.data?.localDate, attempt]);
 
   function togglePause() {
     if (remaining === null) return;
     if (paused) {
       endRef.current = Date.now() + remaining * 1000;
+      pausedRef.current = false;
       setPaused(false);
     } else {
+      const left = remainingAt(endRef.current, latestRef.current, false, Date.now());
+      pausedRef.current = true;
+      latestRef.current = left;
+      setRemaining(left);
       setPaused(true);
-      persist(remaining);
+      persist(left);
     }
   }
 
-  function stop() {
-    persist(latestRef.current);
-    router.back();
+  async function stop() {
+    const left = remainingAt(endRef.current, latestRef.current, pausedRef.current, Date.now());
+    try {
+      if (storeKey && left !== null) await saveFocus(storeKey, left);
+      if (mounted.current) { if (router.canGoBack()) router.back(); else router.replace("/(tabs)"); }
+    } catch {
+      if (mounted.current) setSaveError("Focus progress could not be stored. Check device storage, then try Stop again.");
+    }
   }
 
   // Item missing (already completed elsewhere / bad id / no duration) — bail out.
@@ -243,7 +254,7 @@ export default function TimerScreen() {
   }, [sourceReady, item, router]);
 
   if (!item || totalSeconds === 0) {
-    return <View style={{ flex: 1, backgroundColor: "#101018" }} />;
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
   const elapsedRatio =
@@ -253,22 +264,23 @@ export default function TimerScreen() {
     <ImageBackground
       source={imageForTitle(item.title)}
       resizeMode="cover"
-      style={{ flex: 1, backgroundColor: "#101018" }}
+      style={{ flex: 1, backgroundColor: colors.background }}
     >
       {/* Scrim for legibility */}
       <View
         style={{
           ...({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const),
-          backgroundColor: "rgba(10,10,16,0.45)",
+          backgroundColor: scheme === "dark" ? "rgba(16,19,22,0.86)" : "rgba(250,249,245,0.92)",
         }}
       />
-      <SafeAreaView style={{ flex: 1, padding: 24 }}>
+      <SafeAreaView edges={["top", "left", "right", "bottom"]} style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, gap: 24, width: "100%", maxWidth: 700, alignSelf: "center" }}>
         {/* Header */}
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={{ flex: 1 }}>
             <Text
               style={{
-                color: "rgba(255,255,255,0.72)",
+                color: colors.mutedForeground,
                 fontFamily: Fonts?.medium,
                 fontSize: 13,
                 letterSpacing: 1.4,
@@ -280,9 +292,10 @@ export default function TimerScreen() {
             <Text
               style={{
                 marginTop: 4,
-                color: "#FFFFFF",
-                fontFamily: Fonts?.semibold,
-                fontSize: 22,
+                color: colors.foreground,
+                fontFamily: Fonts.display,
+                fontSize: 38,
+                lineHeight: 44,
               }}
             >
               {item.title}
@@ -291,14 +304,14 @@ export default function TimerScreen() {
         </View>
 
         {/* Countdown */}
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <View style={{ flex: 1, minHeight: 240, alignItems: "center", justifyContent: "center" }}>
           <Text
             style={{
-              color: "#FFFFFF",
+              color: colors.foreground,
               fontFamily: Fonts?.mono,
-              fontSize: 72,
+              fontSize: Math.min(72, (Math.min(width, 700) - 52) / (fmt(remaining ?? totalSeconds).length * 0.64 * Math.max(1, fontScale))),
               fontVariant: ["tabular-nums"],
-              letterSpacing: 2,
+              letterSpacing: 0,
             }}
           >
             {fmt(remaining ?? totalSeconds)}
@@ -306,7 +319,7 @@ export default function TimerScreen() {
           <Text
             style={{
               marginTop: 8,
-              color: "rgba(255,255,255,0.65)",
+              color: colors.mutedForeground,
               fontFamily: Fonts?.sans,
               fontSize: 14,
             }}
@@ -320,7 +333,7 @@ export default function TimerScreen() {
               width: 220,
               height: 3,
               borderRadius: 2,
-              backgroundColor: "rgba(255,255,255,0.22)",
+              backgroundColor: colors.border,
               overflow: "hidden",
             }}
           >
@@ -328,7 +341,7 @@ export default function TimerScreen() {
               style={{
                 width: `${Math.min(100, elapsedRatio * 100)}%`,
                 height: "100%",
-                backgroundColor: "#FFFFFF",
+                backgroundColor: colors.foreground,
               }}
             />
           </View>
@@ -336,7 +349,7 @@ export default function TimerScreen() {
             <Text
               style={{
                 marginTop: 14,
-                color: "rgba(255,255,255,0.55)",
+                color: colors.mutedForeground,
                 fontFamily: Fonts?.sans,
                 fontSize: 13,
               }}
@@ -346,6 +359,7 @@ export default function TimerScreen() {
           )}
         </View>
 
+        {saveError && <View style={{padding:16,backgroundColor:colors.card,borderWidth:1,borderColor:colors.inputBorder,borderRadius:14,gap:12}}><Text accessibilityLiveRegion="polite" style={{color:colors.foreground,fontFamily:Fonts.sans}}>{saveError}</Text>{remaining === 0 && <Pressable accessibilityRole="button" onPress={()=>{setSaveError(null);finishedRef.current=false;setAttempt(x=>x+1);}} style={{minHeight:44,justifyContent:"center"}}><Text style={{color:colors.primary,fontFamily:Fonts.semibold}}>Retry saving completion</Text></Pressable>}<Pressable accessibilityRole="button" onPress={()=>router.replace("/(tabs)")} style={{minHeight:44,justifyContent:"center"}}><Text style={{color:colors.foreground,fontFamily:Fonts.medium}}>Return to Today</Text></Pressable></View>}
         {/* Controls */}
         <View
           style={{
@@ -357,6 +371,8 @@ export default function TimerScreen() {
           }}
         >
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Stop focus timer"
             onPress={stop}
             style={({ pressed }) => ({
               width: 60,
@@ -364,15 +380,18 @@ export default function TimerScreen() {
               borderRadius: 30,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(255,255,255,0.14)",
+              backgroundColor: colors.card,
               borderWidth: 1,
-              borderColor: "rgba(255,255,255,0.25)",
+              borderColor: colors.inputBorder,
               opacity: pressed ? 0.8 : 1,
             })}
           >
-            <Ionicons name="stop" size={24} color="#FFFFFF" />
+            <Ionicons name="stop" size={24} color={colors.foreground} />
           </Pressable>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={paused ? "Resume timer" : "Pause timer"}
+            disabled={remaining === 0}
             onPress={togglePause}
             style={({ pressed }) => ({
               width: 84,
@@ -387,13 +406,14 @@ export default function TimerScreen() {
             <Ionicons
               name={paused ? "play" : "pause"}
               size={34}
-              color="#FFFFFF"
+              color={colors.primaryForeground}
               style={paused ? { marginLeft: 4 } : undefined}
             />
           </Pressable>
           {/* Spacer to keep the pause button centered */}
           <View style={{ width: 60, height: 60 }} />
         </View>
+      </ScrollView>
       </SafeAreaView>
     </ImageBackground>
   );
