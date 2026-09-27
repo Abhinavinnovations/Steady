@@ -7,7 +7,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useStats } from "@/queries/steady";
@@ -23,7 +23,7 @@ type Range = "week" | "month" | "year";
 
 const DOT = 12;
 
-const BADGE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+const BADGE_ICONS: Record<string, keyof typeof SteadyIcon.glyphMap> = {
   "first-day": "checkmark-circle",
   "streak-7": "flame",
   "streak-30": "calendar",
@@ -40,7 +40,7 @@ function StatCard({
 }: {
   label: string;
   value: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: keyof typeof SteadyIcon.glyphMap;
   color: string;
 }) {
   const colors = useColors();
@@ -56,7 +56,7 @@ function StatCard({
         gap: 6,
       }}
     >
-      <Ionicons name={icon} size={16} color={color} />
+      <SteadyIcon name={icon} size={16} color={color} />
       <Text style={{ color: colors.foreground, fontFamily: Fonts.display, fontSize: 34 }}>
         {value}
       </Text>
@@ -229,7 +229,7 @@ export default function ProgressScreen() {
                     gap: 6,
                   }}
                 >
-                  <Ionicons
+                  <SteadyIcon
                     name={BADGE_ICONS[b.code] ?? "ribbon-outline"}
                     size={18}
                     color={b.earned ? colors.streak : colors.mutedForeground}

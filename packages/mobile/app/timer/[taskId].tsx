@@ -11,14 +11,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import * as Haptics from "expo-haptics";
 import { useFocusAwake } from "@/hooks/use-focus-awake";
 import { focusKey, remainingAt } from "@/lib/focus-progress";
 import { readFocus, saveFocus } from "@/lib/focus-storage";
-import { Fonts } from "@/constants/theme";
-import { useColors } from "@/hooks/use-colors";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { Colors, Fonts } from "@/constants/theme";
 import { useToday } from "@/queries/steady";
 import { useTodos, useToggleTodo } from "@/queries/todos";
 import { cancelReminder, todoReminderId } from "@/lib/reminders";
@@ -74,8 +72,8 @@ function fmt(totalSeconds: number) {
 
 export default function TimerScreen() {
   useFocusAwake();
-  const colors = useColors();
-  const scheme = useColorScheme();
+  // Route-local palette. Never changes the saved Light/Dark/Auto preference.
+  const colors = Colors.dark;
   const { width, fontScale } = useWindowDimensions();
   const router = useRouter();
   const { taskId, type, occurrenceDate } = useLocalSearchParams<{
@@ -270,7 +268,7 @@ export default function TimerScreen() {
       <View
         style={{
           ...({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const),
-          backgroundColor: scheme === "dark" ? "rgba(16,19,22,0.86)" : "rgba(250,249,245,0.92)",
+          backgroundColor: "rgba(10,10,16,0.45)",
         }}
       />
       <SafeAreaView edges={["top", "left", "right", "bottom"]} style={{ flex: 1 }}>
@@ -280,7 +278,7 @@ export default function TimerScreen() {
           <View style={{ flex: 1 }}>
             <Text
               style={{
-                color: colors.mutedForeground,
+                color: "rgba(255,255,255,0.72)",
                 fontFamily: Fonts?.medium,
                 fontSize: 13,
                 letterSpacing: 1.4,
@@ -292,8 +290,9 @@ export default function TimerScreen() {
             <Text
               style={{
                 marginTop: 4,
-                color: colors.foreground,
+                color: "#FFFFFF",
                 fontFamily: Fonts.display,
+                fontWeight: "normal", fontStyle: "normal", includeFontPadding: false,
                 fontSize: 38,
                 lineHeight: 44,
               }}
@@ -307,7 +306,7 @@ export default function TimerScreen() {
         <View style={{ flex: 1, minHeight: 240, alignItems: "center", justifyContent: "center" }}>
           <Text
             style={{
-              color: colors.foreground,
+              color: "#FFFFFF",
               fontFamily: Fonts?.mono,
               fontSize: Math.min(72, (Math.min(width, 700) - 52) / (fmt(remaining ?? totalSeconds).length * 0.64 * Math.max(1, fontScale))),
               fontVariant: ["tabular-nums"],
@@ -319,7 +318,7 @@ export default function TimerScreen() {
           <Text
             style={{
               marginTop: 8,
-              color: colors.mutedForeground,
+              color: "rgba(255,255,255,0.65)",
               fontFamily: Fonts?.sans,
               fontSize: 14,
             }}
@@ -333,7 +332,7 @@ export default function TimerScreen() {
               width: 220,
               height: 3,
               borderRadius: 2,
-              backgroundColor: colors.border,
+              backgroundColor: "rgba(255,255,255,0.22)",
               overflow: "hidden",
             }}
           >
@@ -341,7 +340,7 @@ export default function TimerScreen() {
               style={{
                 width: `${Math.min(100, elapsedRatio * 100)}%`,
                 height: "100%",
-                backgroundColor: colors.foreground,
+                backgroundColor: "#FFFFFF",
               }}
             />
           </View>
@@ -349,12 +348,12 @@ export default function TimerScreen() {
             <Text
               style={{
                 marginTop: 14,
-                color: colors.mutedForeground,
+                color: "rgba(255,255,255,0.55)",
                 fontFamily: Fonts?.sans,
                 fontSize: 13,
               }}
             >
-              Resumed — {fmt(totalSeconds - resumedFrom)} already done today
+              Resumed · {fmt(totalSeconds - resumedFrom)} already done today
             </Text>
           )}
         </View>
@@ -380,13 +379,13 @@ export default function TimerScreen() {
               borderRadius: 30,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: colors.card,
+              backgroundColor: "rgba(255,255,255,0.14)",
               borderWidth: 1,
-              borderColor: colors.inputBorder,
+              borderColor: "rgba(255,255,255,0.25)",
               opacity: pressed ? 0.8 : 1,
             })}
           >
-            <Ionicons name="stop" size={24} color={colors.foreground} />
+            <SteadyIcon name="stop" size={24} color="#FFFFFF" />
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -403,7 +402,7 @@ export default function TimerScreen() {
               opacity: pressed ? 0.85 : 1,
             })}
           >
-            <Ionicons
+            <SteadyIcon
               name={paused ? "play" : "pause"}
               size={34}
               color={colors.primaryForeground}

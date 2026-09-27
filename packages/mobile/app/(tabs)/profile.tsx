@@ -10,18 +10,20 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useThemeMode } from "@/lib/theme-context";
 import { GlassSegmentedControl } from "@/components/glass-segmented-control";
 import { authClient, clearToken } from "@/lib/auth";
 import { PartnerSection } from "@/components/partner-section";
-import { useCurrentTasks, useProfile } from "@/queries/steady";
+import { AccountVerification } from "@/components/account-verification";
+import { useChallengeSetup, useCurrentTasks, useProfile } from "@/queries/steady";
 import { usePartner } from "@/queries/partners";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
 import { useTabClearance } from "@/components/paper-tab-bar";
+import { SteadyButton } from "@/components/steady-button";
 import { PaperHeading } from "@/components/paper-heading";
 
 function Row({
@@ -29,7 +31,7 @@ function Row({
   label,
   value,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: keyof typeof SteadyIcon.glyphMap;
   label: string;
   value: string;
 }) {
@@ -43,7 +45,7 @@ function Row({
         paddingVertical: 14,
       }}
     >
-      <Ionicons name={icon} size={18} color={colors.mutedForeground} />
+      <SteadyIcon name={icon} size={18} color={colors.mutedForeground} />
       <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: Fonts?.sans, fontSize: 14 }}>
         {label}
       </Text>
@@ -61,6 +63,7 @@ export default function ProfileScreen() {
   const qc = useQueryClient();
   const profile = useProfile();
   const current = useCurrentTasks();
+  const setup = useChallengeSetup(!!profile.data?.onboardedAt);
   const partner = usePartner();
   const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
 
@@ -72,6 +75,12 @@ export default function ProfileScreen() {
   }
 
   const p = profile.data;
+  const hasBasic = current.data?.tasks.some(t => t.mode === "basic");
+  const hasChallenge = current.data?.confirmed && current.data.tasks.some(t => t.mode === "challenge");
+  const mixture = !current.data ? "Loading commitments…" : hasBasic && hasChallenge ? "Basic + Challenge" : hasChallenge ? "Challenge" : hasBasic ? "Basic" : "No active commitments";
+  const upcoming = setup.data?.upcoming ?? [];
+  const scheduledMonth = upcoming[0]?.month;
+  const scheduledLabel = scheduledMonth ? new Date(`${scheduledMonth}-01T12:00:00Z`).toLocaleString("en", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
 
   return (
     <SafeAreaView
@@ -128,8 +137,8 @@ export default function ProfileScreen() {
                   paddingVertical: 5,
                 }}
               >
-                <Ionicons
-                  name={p.mode === "challenge" ? "people" : "leaf"}
+                <SteadyIcon
+                  name={hasChallenge ? "people" : "leaf"}
                   size={13}
                   color={colors.primary}
                 />
@@ -141,11 +150,13 @@ export default function ProfileScreen() {
                     textTransform: "capitalize",
                   }}
                 >
-                  {p.mode} mode
+                  {mixture}
                 </Text>
               </View>
               </View>
             </GlassCard>
+
+            <AccountVerification />
 
             {/* Details */}
             <GlassCard style={{ marginTop: 24, borderWidth: 0, borderTopWidth: 1, borderBottomWidth: 1, backgroundColor: "transparent" }} padding={0} radius={0}>
@@ -178,6 +189,17 @@ export default function ProfileScreen() {
               </View>
             </GlassCard>
 
+            <View style={{ marginTop: 24, gap: 12 }}>
+              <Text style={{ color: colors.foreground, fontFamily: Fonts.display, fontSize: 27 }}>Your commitments</Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 14, lineHeight: 22 }}>Keep your Basic tasks private. Add separate commitments with accountability.</Text>
+              <Text accessibilityLiveRegion="polite" style={{ color: colors.foreground, fontFamily: Fonts.medium, fontSize: 13, lineHeight: 20 }}>
+                {hasChallenge ? "Challenge active this month." : "Challenge setup pending — confirm commitments to activate."}
+                {scheduledMonth ? ` Challenge scheduled for ${scheduledLabel}.` : ""}
+              </Text>
+              {setup.isError && <SteadyButton title="Retry scheduled commitments" variant="ghost" onPress={() => void setup.refetch()}/>}
+              <SteadyButton title="Go to Challenge mode" variant="outline" onPress={() => router.push("/onboarding?entry=profile")}/>
+            </View>
+
             {/* Appearance */}
             <Text
               style={{
@@ -206,7 +228,7 @@ export default function ProfileScreen() {
             >
               Accountability contact
             </Text>
-            <PartnerSection />
+            <PartnerSection verificationAbove />
 
             <Pressable
               accessibilityRole="button"
@@ -225,7 +247,7 @@ export default function ProfileScreen() {
                 opacity: pressed ? 0.8 : 1,
               })}
             >
-              <Ionicons name="log-out-outline" size={18} color={colors.destructive} />
+              <SteadyIcon name="log-out-outline" size={18} color={colors.destructive} />
               <Text style={{ color: colors.destructive, fontFamily: Fonts?.medium, fontSize: 15 }}>
                 Sign out
               </Text>

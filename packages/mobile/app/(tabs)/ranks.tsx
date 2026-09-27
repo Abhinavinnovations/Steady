@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useProfile, useUpdateProfile } from "@/queries/steady";
@@ -214,7 +214,7 @@ export default function RanksScreen() {
                       </Text>
                     </Text>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                      <Ionicons name="flame" size={11} color={colors.streak} />
+                      <SteadyIcon name="flame" size={11} color={colors.streak} />
                       <Text
                         style={{
                           color: colors.mutedForeground,

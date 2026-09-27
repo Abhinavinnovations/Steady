@@ -103,6 +103,7 @@ export const today = {
       displayName: p.displayName,
       confirmed: !!commitment?.confirmedAt,
       hasCommittedBefore: !!anyConfirmed,
+      canReuseBasic: !!commitment?.confirmedAt && localMonth(p.timezone, commitment.confirmedAt) < month,
       tasks: activeTasks,
       doneCount,
       totalCount: activeTasks.length,

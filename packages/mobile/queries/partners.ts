@@ -11,7 +11,7 @@ export function useInvitePartner() {
   const qc = useQueryClient();
   return useMutation(
     orpc.partners.invite.mutationOptions({
-      onSuccess: () => qc.invalidateQueries({ queryKey: orpc.partners.key() }),
+      onSettled: () => qc.invalidateQueries({ queryKey: orpc.partners.key() }),
     }),
   );
 }
@@ -41,4 +41,14 @@ export function useNudge() {
       onSuccess: () => qc.invalidateQueries({ queryKey: orpc.partners.key() }),
     }),
   );
+}
+
+export function useStopPartnerEmails() {
+  const qc = useQueryClient();
+  return useMutation(orpc.partners.stopEmails.mutationOptions({ onSettled: () => qc.invalidateQueries({ queryKey: orpc.partners.key() }) }));
+}
+
+export function useResendInvitation() {
+  const qc = useQueryClient();
+  return useMutation(orpc.partners.resend.mutationOptions({ onSettled: () => qc.invalidateQueries({ queryKey: orpc.partners.key() }) }));
 }

@@ -11,7 +11,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import * as Haptics from "expo-haptics";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
@@ -219,7 +219,7 @@ export function TimeField({
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Ionicons name="time-outline" size={13} color={colors.mutedForeground} />
+        <SteadyIcon name="time-outline" size={13} color={colors.mutedForeground} />
         <Text
           style={{
             flex: 1,
@@ -274,7 +274,7 @@ export function TimeField({
             opacity: pressed ? 0.8 : 1,
           })}
         >
-          <Ionicons
+          <SteadyIcon
             name={value ? "alarm-outline" : "add"}
             size={15}
             color={value ? colors.primary : colors.mutedForeground}
@@ -372,7 +372,7 @@ export function DateChips({
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Ionicons name="calendar-outline" size={13} color={colors.mutedForeground} />
+        <SteadyIcon name="calendar-outline" size={13} color={colors.mutedForeground} />
         <Text
           style={{
             color: colors.mutedForeground,
@@ -459,7 +459,7 @@ export function CategoryPicker({
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Ionicons name="pricetag-outline" size={13} color={colors.mutedForeground} />
+        <SteadyIcon name="pricetag-outline" size={13} color={colors.mutedForeground} />
         <Text
           style={{
             color: colors.mutedForeground,
@@ -558,7 +558,7 @@ export function CategoryPicker({
                 }}
               />
               <Pressable disabled={disabled} accessibilityRole="button" accessibilityLabel="Create category" onPress={submitNew} hitSlop={8} style={{ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-                <Ionicons
+                <SteadyIcon
                   name="checkmark-circle"
                   size={26}
                   color={
@@ -577,7 +577,7 @@ export function CategoryPicker({
                 }}
                 hitSlop={8}
               >
-                <Ionicons name="close-circle-outline" size={24} color={colors.mutedForeground} />
+                <SteadyIcon name="close-circle-outline" size={24} color={colors.mutedForeground} />
               </Pressable>
             </View>
           ) : (
@@ -598,7 +598,7 @@ export function CategoryPicker({
                 opacity: pressed ? 0.7 : 1,
               })}
             >
-              <Ionicons name="add" size={14} color={colors.primary} />
+              <SteadyIcon name="add" size={14} color={colors.primary} />
               <Text
                 style={{
                   color: colors.primary,

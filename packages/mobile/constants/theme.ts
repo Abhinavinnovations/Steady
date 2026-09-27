@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { FontNames } from "./font-names";
 
 /** White Paper semantic palette. Dark preserves the mineral base. */
 export const Colors = {
@@ -30,10 +31,7 @@ export const Colors = {
 export type ColorScheme = keyof typeof Colors;
 export type ThemeColors = (typeof Colors)[ColorScheme];
 
-const native = {
-  sans: "DMSansRegular", light: "DMSansRegular", medium: "DMSansMedium",
-  semibold: "DMSansSemiBold", bold: "DMSansBold", display: "LibreCaslonDisplay",
-};
+const native = { ...FontNames, light: FontNames.sans };
 /** Static font files loaded by expo-font, with browser fallback stacks. */
 export const Fonts = Platform.select({
   ios: { ...native, mono: "Menlo" },

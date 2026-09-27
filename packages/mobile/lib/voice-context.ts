@@ -1,11 +1,12 @@
 import type { VoiceCard } from "./voice-draft-state";
-export type VoiceContext = "todo" | "basic-setup" | "challenge-setup";
+export type VoiceContext = "todo" | "basic-setup" | "challenge-setup" | "basic-task" | "challenge-task";
 export type StagedVoiceTask = { requestId: string; title: string; durationMinutes?: number };
 
 /** Contextual entry is explicit: setup supports title and duration only. */
 export function contextualCard(card: VoiceCard, context?: VoiceContext): VoiceCard {
   if (!context) return card;
   if (context === "todo") return { ...card, kind: "todo" };
+  if (context === "basic-task" || context === "challenge-task") return { ...card, kind: "consistent", mode: context === "challenge-task" ? "challenge" : "basic", date: null, repeat: "none" };
   return { ...card, kind: "consistent", date: null, repeat: "none", time: null,
     reminder: false, categoryId: null, categoryName: null };
 }

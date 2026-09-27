@@ -16,6 +16,7 @@ import { todos } from "./routes/todos";
 import { assistant } from "./routes/assistant";
 import { calendar } from "./routes/calendar";
 import { reminders } from "./routes/reminders";
+import { recipient } from "./routes/recipient";
 
 export const router = {
   ping,
@@ -33,6 +34,7 @@ export const router = {
   assistant,
   calendar,
   reminders,
+  recipient,
 };
 
 export type AppRouter = typeof router;

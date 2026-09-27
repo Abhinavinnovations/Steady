@@ -1,6 +1,6 @@
 import { Tabs } from "expo-router";
 import { PaperTabBar } from "@/components/paper-tab-bar";
-import { Ionicons } from "@expo/vector-icons";
+import { TabIcon } from "@/components/tab-icon";
 export default function TabLayout() {
   return (
     <Tabs
@@ -12,8 +12,9 @@ export default function TabLayout() {
         options={{
           title: "Today",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "sunny" : "sunny-outline"}
+            <TabIcon
+              name="today"
+              focused={focused}
               size={size}
               color={color}
             />
@@ -25,8 +26,9 @@ export default function TabLayout() {
         options={{
           title: "Progress",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "stats-chart" : "stats-chart-outline"}
+            <TabIcon
+              name="progress"
+              focused={focused}
               size={size}
               color={color}
             />
@@ -38,8 +40,9 @@ export default function TabLayout() {
         options={{
           title: "Ranks",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "podium" : "podium-outline"}
+            <TabIcon
+              name="ranks"
+              focused={focused}
               size={size}
               color={color}
             />
@@ -51,8 +54,9 @@ export default function TabLayout() {
         options={{
           title: "Calendar",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "calendar" : "calendar-outline"}
+            <TabIcon
+              name="calendar"
+              focused={focused}
               size={size}
               color={color}
             />
@@ -64,8 +68,9 @@ export default function TabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "person" : "person-outline"}
+            <TabIcon
+              name="profile"
+              focused={focused}
               size={size}
               color={color}
             />

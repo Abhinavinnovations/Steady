@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { PaperModal as Modal } from "@/components/paper-modal";
@@ -93,7 +93,7 @@ export function NoteSheet({
                 </Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Close completion note" disabled={submitting} onPress={close} style={{minWidth:44,minHeight:44,alignItems:"center",justifyContent:"center"}}>
-                <Ionicons name="close" size={22} color={colors.mutedForeground} />
+                <SteadyIcon name="close" size={22} color={colors.mutedForeground} />
               </Pressable>
             </View>
 
@@ -122,7 +122,7 @@ export function NoteSheet({
             />
 
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Ionicons name="mic-outline" size={14} color={colors.mutedForeground} />
+              <SteadyIcon name="mic-outline" size={14} color={colors.mutedForeground} />
               <Text
                 style={{
                   flex: 1,

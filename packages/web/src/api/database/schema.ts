@@ -192,6 +192,58 @@ export const partners = sqliteTable(
   (t) => [uniqueIndex("partners_owner").on(t.ownerId)],
 );
 
+/** Separate transport ledger; existing relationships are not rewritten or backfilled. */
+export const invitationDeliveries = sqliteTable("invitation_deliveries", {
+  id: text("id").primaryKey(),
+  partnerId: integer("partner_id").notNull().references(() => partners.id, { onDelete: "cascade" }),
+  outcome: text("outcome", { enum: ["sending", "accepted", "failed", "unknown"] }).notNull(),
+  providerId: text("provider_id"),
+  code: text("code").notNull(),
+  /** Exact provider payload for safe replay, never returned to clients. */
+  payload: text("payload").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  leaseUntil: integer("lease_until", { mode: "timestamp_ms" }).notNull(),
+}, t => [index("invitation_deliveries_partner_created").on(t.partnerId, t.createdAt)]);
+
+/** Bearer secrets are hashed here; stop capabilities survive relationship removal. */
+export const recipientLinks = sqliteTable("recipient_links", {
+  tokenHash: text("token_hash").primaryKey(),
+  partnerId: integer("partner_id").references(() => partners.id, { onDelete: "set null" }),
+  ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  recipientKey: text("recipient_key").notNull(),
+  kind: text("kind", { enum: ["invite", "stop"] }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+  decision: text("decision", { enum: ["accepted", "declined"] }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, t => [index("recipient_links_partner").on(t.partnerId)]);
+
+export const recipientConsents = sqliteTable("recipient_consents", {
+  partnerId: integer("partner_id").primaryKey().references(() => partners.id, { onDelete: "cascade" }),
+  acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }).notNull(),
+  startDate: text("start_date").notNull(),
+  version: text("version").notNull(),
+});
+
+/** Owner + normalized mailbox digest. No FK: cancellation must not bypass opt-out. */
+export const recipientSuppressions = sqliteTable("recipient_suppressions", {
+  recipientKey: text("recipient_key").primaryKey(),
+  stoppedAt: integer("stopped_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/** A claim is not a sent email. Unfinished claims are uncertain and never replayed. */
+export const missAlertDeliveries = sqliteTable("miss_alert_deliveries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  partnerId: integer("partner_id").references(() => partners.id, { onDelete: "set null" }),
+  missedDate: text("missed_date").notNull(),
+  outcome: text("outcome", { enum: ["sending", "accepted", "failed", "unknown", "suppressed"] }).notNull(),
+  code: text("code").notNull(),
+  providerId: text("provider_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+}, t => [uniqueIndex("miss_alert_deliveries_user_day").on(t.userId, t.missedDate)]);
+
 /** Minimal automatic badges — awarded lazily when earned, never revoked. */
 export const badges = sqliteTable(
   "badges",

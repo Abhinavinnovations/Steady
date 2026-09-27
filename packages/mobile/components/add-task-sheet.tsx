@@ -11,12 +11,14 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { PaperModal as Modal } from "@/components/paper-modal";
 import { SteadyButton } from "@/components/steady-button";
 import { DurationWheel } from "@/components/duration-wheel";
+import { VoiceEntryButton } from "./voice-entry-button";
+import { VoiceSheet } from "./voice-sheet";
 import { CategoryPicker, TimeField } from "@/components/schedule-fields";
 
 export type TaskSheetValues = {
@@ -29,6 +31,9 @@ export type TaskSheetValues = {
 };
 
 type Props = {
+  todayISO: string;
+  monthLocked: boolean;
+  onChallengeSetup: () => void;
   visible: boolean;
   submitting: boolean;
   error?: string | null;
@@ -47,6 +52,7 @@ type Props = {
  * month. Schedule, category, and focus time stay editable any time.
  */
 export function AddTaskSheet({
+  todayISO, monthLocked, onChallengeSetup,
   visible,
   submitting,
   error,
@@ -64,6 +70,7 @@ export function AddTaskSheet({
   const [reminder, setReminder] = useState(false);
   const [mode, setMode] = useState<"basic" | "challenge">("basic");
   const [showModeInfo, setShowModeInfo] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   // Reset only when the sheet transitions closed -> open. `editing` is a
   // fresh object every parent render, so depending on its identity would
@@ -71,6 +78,7 @@ export function AddTaskSheet({
   const wasVisible = useRef(false);
   useEffect(() => {
     if (visible && !wasVisible.current) {
+      setVoiceOpen(false);
       setTitle(editing?.title ?? "");
       setDuration(editing?.durationMinutes ?? null);
       setCategoryId(editing?.categoryId ?? null);
@@ -83,7 +91,10 @@ export function AddTaskSheet({
   }, [visible, editing]);
 
   const isEdit = !!editing;
-  const valid = isEdit || title.trim().length >= 2;
+  const needsSetup = !isEdit && mode === "challenge" && monthLocked;
+  const minimumDuration = isEdit && monthLocked ? editing.durationMinutes : null;
+  const valid = !needsSetup && (isEdit || title.trim().length >= 2) && (duration ?? 0) >= (minimumDuration ?? 0);
+  if (voiceOpen && visible) return <VoiceSheet visible todayISO={todayISO} context={mode === "challenge" ? "challenge-task" : "basic-task"} onClose={() => setVoiceOpen(false)}/>;
 
   return (
     <Modal
@@ -145,7 +156,7 @@ export function AddTaskSheet({
                 </Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Close task editor" onPress={onClose} style={{ minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center" }}>
-                <Ionicons name="close" size={22} color={colors.mutedForeground} />
+                <SteadyIcon name="close" size={22} color={colors.mutedForeground} />
               </Pressable>
             </View>
 
@@ -154,6 +165,8 @@ export function AddTaskSheet({
               keyboardShouldPersistTaps="handled"
             >
               <View style={{ gap: 14 }}>
+                {!isEdit && <View style={{ alignItems: "flex-end" }}><VoiceEntryButton label="Add consistent tasks by voice" disabled={submitting || needsSetup} onPress={() => setVoiceOpen(true)}/></View>}
+                {needsSetup && <View style={{ gap: 8 }}><Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 13 }}>This month is locked. Set up separate Challenge commitments for next month. Your Basic tasks stay private.</Text><SteadyButton title="Set up next month’s Challenge" onPress={onChallengeSetup}/></View>}
                 {!isEdit ? (
                   <TextInput
                     accessibilityLabel="Task title"
@@ -182,7 +195,7 @@ export function AddTaskSheet({
                   <View
                     style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
                   >
-                    <Ionicons
+                    <SteadyIcon
                       name="flag-outline"
                       size={13}
                       color={colors.mutedForeground}
@@ -214,9 +227,9 @@ export function AddTaskSheet({
                         key={m}
                         accessibilityRole="radio"
                         accessibilityLabel={`${m} task mode`}
-                        accessibilityState={{ checked: mode === m, disabled: submitting }}
+                        accessibilityState={{ checked: mode === m, disabled: submitting || isEdit }}
                         aria-checked={mode === m}
-                        disabled={submitting}
+                        disabled={submitting || isEdit}
                         onPress={() => {
                           setMode(m);
                           if (m === "challenge") setShowModeInfo(true);
@@ -248,6 +261,7 @@ export function AddTaskSheet({
                       </Pressable>
                     ))}
                   </View>
+                  {isEdit && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12 }}>Mode stays fixed to protect your past results. Create a separate task to use another mode.</Text>}
                   {mode === "challenge" && showModeInfo ? (
                     <Text
                       style={{
@@ -271,7 +285,7 @@ export function AddTaskSheet({
                   <View
                     style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
                   >
-                    <Ionicons
+                    <SteadyIcon
                       name="timer-outline"
                       size={13}
                       color={colors.mutedForeground}
@@ -288,7 +302,8 @@ export function AddTaskSheet({
                       Focus time (optional)
                     </Text>
                   </View>
-                  <DurationWheel value={duration} onChange={setDuration} />
+                  <DurationWheel value={duration} onChange={setDuration} minimum={minimumDuration} disabled={submitting} />
+                  {isEdit && monthLocked && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 18 }}>Committed focus time can only increase. The task cannot be deleted.</Text>}
                 </View>
 
                 <TimeField value={time} onChange={setTime} />
@@ -297,7 +312,7 @@ export function AddTaskSheet({
                   <View
                     style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
                   >
-                    <Ionicons
+                    <SteadyIcon
                       name="notifications-outline"
                       size={15}
                       color={colors.mutedForeground}
@@ -376,8 +391,8 @@ export function AddTaskSheet({
                   }}
                 >
                   {isEdit
-                    ? "Schedule and category are always editable. The task itself stays until next month."
-                    : "Counts from today. Tasks can be added any time — removing waits for next month."}
+                    ? "Schedule and category stay editable. A committed task cannot be deleted or have its focus time reduced."
+                    : "Counts from today. Once committed, tasks cannot be deleted or reduced."}
                 </Text>
               </View>
             </ScrollView>

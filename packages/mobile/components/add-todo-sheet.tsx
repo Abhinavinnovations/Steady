@@ -10,11 +10,12 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { PaperModal as Modal } from "@/components/paper-modal";
+import { VoiceEntryButton } from "./voice-entry-button";
 import { VoiceSheet } from "@/components/voice-sheet";
 import { SteadyButton } from "@/components/steady-button";
 import { DurationWheel } from "@/components/duration-wheel";
@@ -79,6 +80,7 @@ export function AddTodoSheet({
   const wasVisible = useRef(false);
   useEffect(() => {
     if (visible && !wasVisible.current) {
+      setVoiceOpen(false);
       setTitle(editing?.title ?? "");
       setRepeat(editing?.repeat ?? "none");
       setDuration(editing?.durationMinutes ?? null);
@@ -93,7 +95,7 @@ export function AddTodoSheet({
   const isEdit = !!editing;
   const valid = title.trim().length >= 1;
 
-  if (voiceOpen) return <VoiceSheet visible todayISO={todayISO} context="todo" onClose={() => setVoiceOpen(false)}/>;
+  if (voiceOpen && visible) return <VoiceSheet visible todayISO={todayISO} context="todo" onClose={() => setVoiceOpen(false)}/>;
 
   return (
     <Modal
@@ -159,7 +161,7 @@ export function AddTodoSheet({
                 </Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Close to-do editor" disabled={submitting} onPress={onClose} style={{minWidth:44,minHeight:44,alignItems:"center",justifyContent:"center"}}>
-                <Ionicons name="close" size={22} color={colors.mutedForeground} />
+                <SteadyIcon name="close" size={22} color={colors.mutedForeground} />
               </Pressable>
             </View>
 
@@ -168,7 +170,7 @@ export function AddTodoSheet({
               keyboardShouldPersistTaps="handled"
             >
               <View style={{ gap: 14 }}>
-                {!isEdit && <SteadyButton title="Use microphone · multiple to-dos" variant="outline" disabled={submitting} onPress={() => setVoiceOpen(true)}/>}
+                {!isEdit && <View style={{ alignItems: "flex-end" }}><VoiceEntryButton label="Add to-dos by voice" disabled={submitting} onPress={() => setVoiceOpen(true)}/></View>}
                 <Text style={{color: colors.mutedForeground, fontFamily: Fonts.medium, fontSize: 12}}>TITLE</Text>
                 <TextInput
                   accessibilityLabel="To-do title"
@@ -201,7 +203,7 @@ export function AddTodoSheet({
                   <View
                     style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
                   >
-                    <Ionicons
+                    <SteadyIcon
                       name="timer-outline"
                       size={13}
                       color={colors.mutedForeground}
@@ -227,7 +229,7 @@ export function AddTodoSheet({
                   <View
                     style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
                   >
-                    <Ionicons
+                    <SteadyIcon
                       name="notifications-outline"
                       size={15}
                       color={colors.mutedForeground}

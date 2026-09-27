@@ -9,16 +9,19 @@ import { StatusBar } from "expo-status-bar";
 import { authClient } from "@/lib/auth";
 import { useThemeMode } from "@/lib/theme-context";
 import { useColors } from "@/hooks/use-colors";
+import { Colors } from "@/constants/theme";
 
 export function ThemedStatusBar() {
   const { scheme } = useThemeMode();
-  return <StatusBar style={scheme === "dark" ? "light" : "dark"} />;
+  const segments = useSegments();
+  return <StatusBar style={segments[0] === "timer" || scheme === "dark" ? "light" : "dark"} />;
 }
 export function AuthGate() {
   const { data: session, isPending } = authClient.useSession();
   const segments = useSegments();
   const router = useRouter();
-  const colors = useColors();
+  const themeColors = useColors();
+  const colors = segments[0] === "timer" ? Colors.dark : themeColors;
   const qc = useQueryClient();
   const [readyUser, setReadyUser] = useState<string | null | undefined>(undefined);
   useEffect(() => {

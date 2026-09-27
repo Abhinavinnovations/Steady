@@ -2,6 +2,19 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
+		<meta name="referrer" content="no-referrer" />
+		<script>
+			// Scrub recipient capabilities before any deferred analytics or app code.
+			function captureSteadyInvitation() {
+				if (location.pathname !== "/invitation") return;
+				const token = location.hash.slice(1);
+				history.replaceState(null, "", "/invitation");
+				Object.defineProperty(window, "steadyRecipientToken", { value: /^[A-Za-z0-9_-]{43}$/.test(token) ? token : "", configurable: true });
+				window.dispatchEvent(new Event("steady-recipient-link"));
+			}
+			captureSteadyInvitation();
+			window.addEventListener("hashchange", captureSteadyInvitation);
+		</script>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<link rel="icon" href="/favicon.ico" />
 		<meta property="og:image" content="/og-image.png" />

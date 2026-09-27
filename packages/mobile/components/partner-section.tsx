@@ -1,16 +1,19 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActivityIndicator, Text, TextInput, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { randomUUID } from "expo-crypto";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { authClient } from "@/lib/auth";
+import { AccountVerification } from "@/components/account-verification";
 import { useProfile } from "@/queries/steady";
 import {
   useInvitePartner,
+  useResendInvitation,
   useNudge,
   usePartner,
   useRemovePartner,
   useRespondInvite,
+  useStopPartnerEmails,
 } from "@/queries/partners";
 import { GlassCard } from "@/components/glass-card";
 import { SteadyButton } from "@/components/steady-button";
@@ -21,46 +24,53 @@ import { SteadyButton } from "@/components/steady-button";
  * done/missed, and get an email when you break the streak. Basic tasks stay
  * fully private — partners never see them at all.
  */
-export function PartnerSection() {
+export function PartnerSection({ verificationAbove = false }: { verificationAbove?: boolean }) {
   const colors = useColors();
   const profile = useProfile();
   const partner = usePartner();
   const invite = useInvitePartner();
+  const resend = useResendInvitation();
+  const sending = useRef(false);
+  const pendingInvite = useRef<{email: string; requestId: string} | null>(null);
+  const retryId = useRef<string | null>(null);
   const respond = useRespondInvite();
+  const stopEmails = useStopPartnerEmails();
   const remove = useRemovePartner();
   const nudge = useNudge();
 
   const [email, setEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [verifySending, setVerifySending] = useState(false);
-
   const p = profile.data;
   const d = partner.data;
 
-  async function resendVerification() {
-    if (!p?.email) return;
-    setVerifySending(true);
-    setNotice(null);
-    const res = await authClient.sendVerificationEmail({ email: p.email });
-    setVerifySending(false);
-    setNotice(
-      res.error
-        ? (res.error.message ?? "Couldn't send the email — try again later.")
-        : "Verification email sent. Check your inbox, then come back.",
-    );
+  function deliveryMessage(delivery?: {outcome: string; code: string}) {
+    if (delivery?.outcome === "accepted") return "The email provider accepted the invitation, but inbox delivery is not confirmed. New email links let your contact accept in a browser without an account.";
+    if (delivery?.outcome === "failed") return "Invitation saved, but email was not sent. Sender configuration or provider delivery needs attention. Use Resend when available to send an account-free link.";
+    if (delivery?.outcome === "sending") return "Invitation saved. Email delivery is being checked; refresh status before retrying.";
+    if (delivery?.code === "manual_provider_check_required") return "Email delivery remains unconfirmed. A provider check is needed before another send to avoid duplicates.";
+    return "Invitation saved. Email delivery could not be confirmed. Refresh status before retrying. Older invitations may still have the sign-in link.";
   }
-
   async function sendInvite() {
-    setFormError(null);
-    setNotice(null);
+    if (sending.current) return;
+    sending.current = true; setFormError(null); setNotice(null);
+    pendingInvite.current ??= { email: email.trim(), requestId: randomUUID() };
     try {
-      await invite.mutateAsync({ email: email.trim() });
-      setEmail("");
-      setNotice("Invite sent. Nothing is shared until they accept.");
+      const result = await invite.mutateAsync(pendingInvite.current);
+      pendingInvite.current = null; setEmail(""); setNotice(deliveryMessage(result.delivery));
     } catch (e: any) {
-      setFormError(e?.message ?? "Couldn't send the invite");
-    }
+      setFormError(e?.message ?? "Invitation result unknown. Refresh status before creating another invitation.");
+    } finally { sending.current = false; }
+  }
+  async function resendInvite() {
+    if (!d?.outgoing || sending.current) return;
+    sending.current = true; setFormError(null); setNotice(null); retryId.current ??= randomUUID();
+    try {
+      const result = await resend.mutateAsync({partnerId: d.outgoing.id, requestId: retryId.current});
+      if (result.delivery.outcome === "accepted" || result.delivery.outcome === "failed") retryId.current = null;
+      setNotice(deliveryMessage(result.delivery));
+    } catch (e: any) { setFormError(e?.message ?? "Delivery unconfirmed. Refresh status, then retry unchanged."); }
+    finally { sending.current = false; }
   }
 
   async function sendNudge(partnerId: number) {
@@ -98,7 +108,7 @@ export function PartnerSection() {
 
   return (
     <View>
-      <Text style={{ color: colors.foreground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 19, marginBottom: 12 }}>Email-code contacts are retired. Existing records are retained, but do not enable Challenge or receive alerts. Invite a contact here; nothing is sent automatically.</Text>
+      <Text style={{ color: colors.foreground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 19, marginBottom: 12 }}>Invite a contact by email. They can accept in a browser without an account or app. Email-code contacts are retired; their records are retained without enrolling them in alerts.</Text>
       <SteadyButton title="Refresh contact status" variant="ghost" onPress={() => void partner.refetch()} disabled={partner.isFetching}/>
       <Text
         style={{
@@ -109,16 +119,16 @@ export function PartnerSection() {
           marginBottom: 12,
         }}
       >
-        For challenge tasks only. Your accountability contact sees your streak and daily
-        done/missed — never task names or notes — and gets an email when you
-        break the streak. Basic tasks stay invisible to them.
+        For Challenge tasks only. After explicit consent, your contact can receive future missed-day emails.
+        No task names, notes or Basic tasks are shared. They can stop emails at any time.
+        Checks run when Steady is used, not at a guaranteed time.
       </Text>
 
       {!d.emailVerified ? (
         <GlassCard padding={16} radius={16}>
           <View style={{ gap: 10 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Ionicons name="shield-outline" size={18} color={colors.warning} />
+              <SteadyIcon name="shield-outline" size={18} color={colors.warning} />
               <Text
                 style={{
                   color: colors.foreground,
@@ -137,22 +147,18 @@ export function PartnerSection() {
                 lineHeight: 19,
               }}
             >
-              Accountability contacts need one verified account per person. We sent a
-              link to {p.email} when you signed up.
+              {verificationAbove
+                ? "Use Verify your email in the Account verification section above. After opening the email link, check verification status there."
+                : "Verify your own account before inviting a contact. Your contact will accept a separate invitation."}
             </Text>
-            <SteadyButton
-              title={verifySending ? "Sending…" : "Resend verification email"}
-              variant="outline"
-              onPress={resendVerification}
-              loading={verifySending}
-            />
+            {!verificationAbove && <AccountVerification />}
           </View>
         </GlassCard>
       ) : d.outgoing && d.outgoing.status === "invited" ? (
         <GlassCard padding={16} radius={16}>
           <View style={{ gap: 10 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Ionicons name="hourglass-outline" size={16} color={colors.warning} />
+              <SteadyIcon name="hourglass-outline" size={16} color={colors.warning} />
               <Text
                 style={{
                   flex: 1,
@@ -183,6 +189,9 @@ export function PartnerSection() {
             >
               Challenge cannot start until they accept. Nothing is shared while pending.
             </Text>
+            <Text accessibilityLiveRegion="polite" style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 19 }}>{deliveryMessage(d.outgoing.delivery)}</Text>
+            {d.outgoing.delivery?.updatedAt && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 11 }}>Last checked: {new Date(d.outgoing.delivery.updatedAt).toISOString().replace("T", " ").replace(".000Z", " UTC")}</Text>}
+            <SteadyButton title="Resend invitation" variant="outline" onPress={() => void resendInvite()} loading={resend.isPending} disabled={resend.isPending || d.outgoing.delivery?.code === "manual_provider_check_required"}/>
             <SteadyButton
               title="Cancel invite"
               variant="outline"
@@ -195,7 +204,7 @@ export function PartnerSection() {
         <GlassCard padding={16} radius={16}>
           <View style={{ gap: 10 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+              <SteadyIcon name="checkmark-circle" size={18} color={colors.success} />
               <Text
                 style={{
                   flex: 1,
@@ -215,8 +224,9 @@ export function PartnerSection() {
                 lineHeight: 18,
               }}
             >
-              They see your challenge streak and daily done/missed, and hear
-              about it by email when you break the streak.
+              {d.outgoing.accountLinked ? "They can see your high-level Challenge progress in their account. " : "They accepted without linking a Steady account. "}
+              {d.outgoing.emailState === "enabled" ? "They consented to future missed-day emails and can stop them at any time." : d.outgoing.emailState === "stopped" ? "They stopped emails. Their accepted contact status is unchanged." : d.outgoing.emailState === "paused" ? "They consented, but automatic emails are currently paused." : "This existing acceptance is not enrolled in automatic missed-day emails."}
+              {" "}Basic tasks stay private.
             </Text>
             <SteadyButton
               title="Remove accountability contact"
@@ -249,7 +259,8 @@ export function PartnerSection() {
               autoCapitalize="none"
               keyboardType="email-address"
               value={email}
-              onChangeText={setEmail}
+              editable={!invite.isPending}
+              onChangeText={value => { setEmail(value); pendingInvite.current = null; }}
             />
             <SteadyButton
               title="Send invite"
@@ -297,14 +308,14 @@ export function PartnerSection() {
                     lineHeight: 18,
                   }}
                 >
-                  If you accept, you'll see only their high-level progress.
+                  By accepting, you agree to future Challenge missed-day emails, at most one per missed day. You'll see only high-level progress, never task names, notes or Basic tasks. Stop emails here or from any alert. Checks run when Steady is used.
                 </Text>
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <SteadyButton
                     title="Accept"
                     style={{ flex: 1 }}
                     onPress={() =>
-                      respond.mutate({ partnerId: inv.id, accept: true })
+                      respond.mutate({ partnerId: inv.id, accept: true, consentVersion: "challenge-email-v1" })
                     }
                     loading={respond.isPending}
                   />
@@ -342,7 +353,7 @@ export function PartnerSection() {
                   >
                     {w.displayName}
                   </Text>
-                  <Ionicons name="flame" size={14} color={colors.streak} />
+                  <SteadyIcon name="flame" size={14} color={colors.streak} />
                   <Text
                     style={{
                       color: colors.streak,
@@ -353,6 +364,8 @@ export function PartnerSection() {
                     {w.streak}
                   </Text>
                 </View>
+                <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12 }}>{w.emailState === "stopped" ? "Emails stopped. Your contact relationship is unchanged." : w.emailState === "enabled" ? "Future missed-day emails enabled with your consent." : "Automatic missed-day emails are not active."}</Text>
+                {w.emailState !== "stopped" && <SteadyButton title="Stop emails from this person" variant="ghost" onPress={() => stopEmails.mutate({ partnerId: w.partnerId })} loading={stopEmails.isPending} />}
                 <View style={{ flexDirection: "row", gap: 16 }}>
                   <View
                     style={{
@@ -429,7 +442,7 @@ export function PartnerSection() {
         </View>
       ) : null}
 
-      {remove.error || respond.error ? <Text accessibilityLiveRegion="polite" style={{color: colors.destructive, fontFamily: Fonts.sans}}>{(remove.error || respond.error)?.message}</Text> : null}
+      {remove.error || respond.error || stopEmails.error ? <Text accessibilityLiveRegion="polite" style={{color: colors.destructive, fontFamily: Fonts.sans}}>{(remove.error || respond.error || stopEmails.error)?.message}</Text> : null}
       {formError ? (
         <Text
           style={{

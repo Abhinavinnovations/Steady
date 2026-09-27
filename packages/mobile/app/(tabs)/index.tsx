@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { TaskRow } from "@/components/task-row";
@@ -20,7 +20,6 @@ import { ProgressRing } from "@/components/progress-ring";
 import { NoteSheet } from "@/components/note-sheet";
 import { AddTaskSheet, type TaskSheetValues } from "@/components/add-task-sheet";
 import { AddTodoSheet, type TodoSheetValues } from "@/components/add-todo-sheet";
-import { VoiceSheet } from "@/components/voice-sheet";
 import { SteadyButton } from "@/components/steady-button";
 import { GradientBackdrop } from "@/components/gradient-backdrop";
 import { GlassCard } from "@/components/glass-card";
@@ -121,7 +120,6 @@ export default function TodayScreen() {
   const [todoError, setTodoError] = useState<string | null>(null);
 
   // Voice assistant sheet
-  const [voiceOpen, setVoiceOpen] = useState(false);
 
   async function submitTaskSheet(v: TaskSheetValues) {
     setTaskError(null);
@@ -369,26 +367,6 @@ export default function TodayScreen() {
           <View style={{ flex: 1 }}>
             <PaperHeading title="Today" subtitle={dateLabel} />
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Add task by voice"
-            onPress={() => setVoiceOpen(true)}
-            hitSlop={6}
-            style={({ pressed }) => ({
-              width: 44,
-              height: 44,
-              borderRadius: 999,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              marginRight: 10,
-              opacity: pressed ? 0.8 : 1,
-            })}
-          >
-            <Ionicons name="mic-outline" size={19} color={colors.primary} />
-          </Pressable>
           <View
             style={{
               flexDirection: "row",
@@ -402,7 +380,7 @@ export default function TodayScreen() {
               paddingVertical: 8,
             }}
           >
-            <Ionicons name="flame" size={16} color={colors.streak} />
+            <SteadyIcon name="flame" size={16} color={colors.streak} />
             <Text
               style={{
                 color: colors.streak,
@@ -427,7 +405,7 @@ export default function TodayScreen() {
         </View>
         <View style={{flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:18}}>
           <Text style={{flex:1,color:colors.mutedForeground,fontFamily:Fonts.sans,fontSize:11}}>{profile.data?.timezone} · Swipe left for actions</Text>
-          <Pressable accessibilityRole="button" accessibilityState={{selected:flagOnly}} aria-pressed={flagOnly} onPress={()=>setFlagOnly(!flagOnly)} style={{minHeight:44,flexDirection:"row",gap:6,alignItems:"center",paddingHorizontal:10}}><Ionicons name={flagOnly?"flag":"flag-outline"} size={16} color={colors.primary}/><Text style={{color:colors.primary,fontFamily:Fonts.medium,fontSize:12}}>{flagOnly?"Flagged":"All tasks"}</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityState={{selected:flagOnly}} aria-pressed={flagOnly} onPress={()=>setFlagOnly(!flagOnly)} style={{minHeight:44,flexDirection:"row",gap:6,alignItems:"center",paddingHorizontal:10}}><SteadyIcon name={flagOnly?"flag":"flag-outline"} size={16} color={colors.primary}/><Text style={{color:colors.primary,fontFamily:Fonts.medium,fontSize:12}}>{flagOnly?"Flagged":"All tasks"}</Text></Pressable>
         </View>
         {actionError && <Pressable onPress={()=>setActionError(null)}><Text accessibilityLiveRegion="polite" style={{color:colors.destructive,fontFamily:Fonts.sans,paddingVertical:12}}>{actionError}</Text></Pressable>}
 
@@ -485,13 +463,19 @@ export default function TodayScreen() {
           </View>
         ) : null}
 
+        {d.canReuseBasic && d.tasks.length < 10 && <SteadyButton title="Reuse last month’s Basic tasks" variant="outline" loading={copyPrevious.isPending} onPress={async () => {
+          if (copyPrevious.isPending) return;
+          try { const result = await copyPrevious.mutateAsync({}); if (!result.copied) setActionError("No new Basic tasks to copy. Existing tasks stay unchanged."); }
+          catch (e) { setActionError(e instanceof Error ? e.message : "Could not copy tasks. Try again."); }
+        }}/>}
+
         {/* Challenge tasks without a verified accountability contact */}
         {d.tasks.some((t) => t.mode === "challenge") &&
         accountability.isSuccess &&
         accountability.data?.outgoing?.status !== "accepted" ? (
           <GlassCard style={{ marginTop: 20 }} padding={16} radius={16}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Ionicons name="shield-outline" size={22} color={colors.warning} />
+              <SteadyIcon name="shield-outline" size={22} color={colors.warning} />
               <View style={{ flex: 1 }}>
                 <Text
                   style={{
@@ -590,7 +574,7 @@ export default function TodayScreen() {
             gap: 6,
           }}
         >
-          <Ionicons name="flame-outline" size={13} color={colors.mutedForeground} />
+          <SteadyIcon name="flame-outline" size={13} color={colors.mutedForeground} />
           <Text
             style={{
               color: colors.foreground,
@@ -599,13 +583,16 @@ export default function TodayScreen() {
               lineHeight: 33,
             }}
           >
-            Consistent
+            Consistent Tasks
           </Text>
         </View>
+        {d.confirmed && d.tasks.length > 0 && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>Tap the circle to mark a task complete and add your daily note. Challenge tasks work the same way, with accountability for missed days.</Text>}
         <View style={{ gap: 10 }}>
           {visibleTasks.map(t => <TaskRow key={t.id} title={t.title} focusIdentity={t.durationMinutes ? {kind:"task",id:t.id,day:d.localDate,durationMinutes:t.durationMinutes} : undefined} consistent done={t.completed} flagged={t.flagged}
-            subtitle={[t.scheduledTime ? formatTime12(t.scheduledTime) : null, t.durationMinutes ? formatDuration(t.durationMinutes) : null, catName(t.categoryId),t.mode === "challenge" ? "Challenge" : "Daily commitment"].filter(Boolean).join(" · ")}
+            subtitle={[t.scheduledTime ? formatTime12(t.scheduledTime) : null, t.durationMinutes ? formatDuration(t.durationMinutes) : null, catName(t.categoryId),t.mode === "challenge" ? "Challenge" : "Basic"].filter(Boolean).join(" · ")}
             onPress={()=>{if(!d.confirmed)return;if(t.completed)setExpanded(expanded===t.id?null:t.id);else{setNoteError(null);setNoteTask({...t,expectedDate:d.localDate});}}}
+            checkDisabled={!d.confirmed || complete.isPending || undo.isPending}
+            onCheck={()=>{if(!d.confirmed)return;if(t.completed)confirmUndo(t);else{setNoteError(null);setNoteTask({...t,expectedDate:d.localDate});}}}
             onSchedule={()=>{setTaskError(null);setTaskSheet({mode:"edit",task:t});}}
             onFlag={()=>updateTask.mutate({id:t.id,flagged:!t.flagged},{onError:e=>setActionError(e.message)})}
             onFocus={t.completed?undefined:()=>focus(t,false)}>
@@ -647,7 +634,7 @@ export default function TodayScreen() {
                 opacity: pressed ? 0.7 : 1,
               })}
             >
-              <Ionicons name="add" size={18} color={colors.primary} />
+              <SteadyIcon name="add" size={18} color={colors.primary} />
               <Text
                 style={{
                   color: colors.primary,
@@ -671,7 +658,7 @@ export default function TodayScreen() {
             gap: 6,
           }}
         >
-          <Ionicons
+          <SteadyIcon
             name="checkbox-outline"
             size={13}
             color={colors.mutedForeground}
@@ -742,7 +729,7 @@ export default function TodayScreen() {
               opacity: pressed ? 0.7 : 1,
             })}
           >
-            <Ionicons name="add" size={18} color={colors.primary} />
+            <SteadyIcon name="add" size={18} color={colors.primary} />
             <Text
               style={{
                 color: colors.primary,
@@ -765,6 +752,9 @@ export default function TodayScreen() {
         onClose={() => setNoteTask(null)}
       />
       <AddTaskSheet
+        todayISO={d.localDate}
+        monthLocked={d.confirmed}
+        onChallengeSetup={() => { setTaskSheet(null); router.push("/onboarding?entry=profile"); }}
         visible={taskSheet !== null}
         submitting={createTask.isPending || updateTask.isPending}
         error={taskError}
@@ -806,11 +796,6 @@ export default function TodayScreen() {
         }
         onSubmit={submitTodoSheet}
         onClose={() => setTodoSheet(null)}
-      />
-      <VoiceSheet
-        visible={voiceOpen}
-        todayISO={todos.data?.today ?? d.localDate}
-        onClose={() => setVoiceOpen(false)}
       />
     </SafeAreaView>
   );

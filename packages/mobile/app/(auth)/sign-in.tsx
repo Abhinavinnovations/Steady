@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { SteadyButton } from "@/components/steady-button";
@@ -160,7 +160,7 @@ export default function SignInScreen() {
                 opacity: pressed || googleLoading ? 0.7 : 1,
               })}
             >
-              <Ionicons name="logo-google" size={18} color={colors.foreground} />
+              <SteadyIcon name="logo-google" size={18} color={colors.foreground} />
               <Text style={{ color: colors.foreground, fontFamily: Fonts?.medium, fontSize: 15 }}>
                 {googleLoading ? "Opening Google…" : "Continue with Google"}
               </Text>

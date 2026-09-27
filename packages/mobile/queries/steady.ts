@@ -68,6 +68,10 @@ export function useUndoTask() {
   );
 }
 
+export function useChallengeSetup(enabled = true) {
+  return useQuery(orpc.tasks.setupState.queryOptions({ enabled, retry: false }));
+}
+
 export function useCurrentTasks() {
   return useQuery(orpc.tasks.current.queryOptions({ retry: false }));
 }

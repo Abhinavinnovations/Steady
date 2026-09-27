@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { SteadyButton } from "@/components/steady-button";
@@ -94,7 +94,7 @@ export function AccountabilitySetup({
       {c && c.verified && !changing ? (
         <>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <Ionicons name="shield-checkmark" size={20} color={colors.success} />
+            <SteadyIcon name="shield-checkmark" size={20} color={colors.success} />
             <View style={{ flex: 1 }}>
               <Text
                 style={{ color: colors.foreground, fontFamily: Fonts?.medium, fontSize: 14 }}

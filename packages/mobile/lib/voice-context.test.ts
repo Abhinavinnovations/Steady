@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { contextualCard, stageVoiceTasks } from "./voice-context";
-import type { VoiceCard } from "./voice-draft-state";
+import { freezePayload, recoverCard, editableCard, type VoiceCard } from "./voice-draft-state";
 const card: VoiceCard = {localId:"0bd0633b-50c1-4ccd-acdf-f8f2f9f91481",title:"  Read 20 pages  ",kind:"todo",date:"2026-09-17",repeat:"weekly",time:"18:00",durationMinutes:120,reminder:true,categoryName:"Mind",categoryId:2,selected:true,status:"editable"};
 test("to-do context forces to-do without losing reviewed scheduling", () => {
   expect(contextualCard({...card,kind:"consistent"},"todo")).toEqual({...card,kind:"todo"});
@@ -20,4 +20,23 @@ test("review selection, stable stage identity, maximum and title validation", ()
   expect(() => stageVoiceTasks([{...card,selected:false}],10)).toThrow("Select");
   expect(() => stageVoiceTasks([{...card,title:" "}],10)).toThrow("Review");
   expect(contextualCard(card)).toBe(card);
+});
+for (const mode of ["basic", "challenge"] as const) {
+  test(`${mode} task context preserves schedule and freezes explicit mode across recovery`, () => {
+    const reviewed = contextualCard(card, `${mode}-task`);
+    expect(reviewed).toMatchObject({ kind: "consistent", mode, time: "18:00", reminder: true, categoryId: 2, date: null, repeat: "none" });
+    const payload = freezePayload(reviewed, card.localId, "2026-09-25");
+    expect(payload).toMatchObject({ mode, requestId: card.localId, scheduledTime: "18:00", reminderEnabled: true, categoryId: 2 });
+    expect(payload.dueDate).toBeUndefined();
+    const recovered = recoverCard({ kind: "consistent", localId: card.localId, payload });
+    expect(recovered.mode).toBe(mode);
+    expect(recovered.payload).toBe(payload);
+    expect(editableCard(recovered)).toBe(false);
+  });
+}
+test("multiple selected Challenge entries preserve independent request IDs and mode", () => {
+  const cards = [card, { ...card, localId: "another" }].map(c => contextualCard(c, "challenge-task"));
+  const payloads = cards.map(c => freezePayload(c, c.localId, "2026-09-25"));
+  expect(new Set(payloads.map(p => p.requestId)).size).toBe(2);
+  expect(payloads.every(p => p.mode === "challenge")).toBe(true);
 });

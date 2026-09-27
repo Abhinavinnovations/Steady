@@ -7,9 +7,10 @@ import { db } from "../database";
 import * as schema from "../database/schema";
 import { localDate, localMonth, shiftDay } from "../lib/dates";
 import { computeDayStatuses, activeStreak } from "../lib/streak";
-import { sendEmail, emailShell } from "../services/email";
+import { sendEmail, emailShell, escapeHtml } from "../services/email";
 
-const appUrl = () => process.env.WEBSITE_URL ?? "";
+import { deliverInvitation, invitationStatus } from "../services/invitation-delivery";
+import { CONSENT_VERSION, contactEmailState, decidePartner, isSuppressed, recipientFlowEnabled, recipientKey } from "../services/recipient-consent";
 
 /**
  * High-level status only — this is the privacy boundary.
@@ -118,6 +119,7 @@ export const partners = {
         );
       watching.push({
         partnerId: row.id,
+        emailState: await contactEmailState(row),
         ...status,
         canNudge: status.missedYesterday && !nudged,
       });
@@ -131,6 +133,9 @@ export const partners = {
             partnerEmail: outgoing.partnerEmail,
             status: outgoing.status,
             createdAt: outgoing.createdAt,
+            emailState: await contactEmailState(outgoing),
+            accountLinked: !!outgoing.partnerUserId,
+            delivery: await invitationStatus(outgoing.id),
           }
         : null,
       incoming,
@@ -140,7 +145,7 @@ export const partners = {
 
   /** Invite one accountability contact by email. Verified email required. */
   invite: authed
-    .input(z.object({ email: z.string().trim().toLowerCase().email().max(254) }))
+    .input(z.object({ email: z.string().trim().toLowerCase().email().max(254), requestId: z.string().uuid().optional() }))
     .handler(async ({ context, input }) => {
       requireVerified(context.user);
 
@@ -155,46 +160,29 @@ export const partners = {
           message: "You can't be your own accountability contact",
         });
 
-      const [existing] = await db
-        .select()
-        .from(schema.partners)
-        .where(eq(schema.partners.ownerId, context.user.id));
-      if (existing && existing.status !== "declined")
-        throw new ORPCError("CONFLICT", {
-          message: "One accountability contact at a time — remove the current one first",
-        });
-      if (existing) {
-        await db.delete(schema.partners).where(eq(schema.partners.id, existing.id));
-      }
-
-      const [row] = await db
-        .insert(schema.partners)
-        .values({
-          ownerId: context.user.id,
-          partnerEmail: input.email,
-          inviteToken: randomUUID(),
-        })
-        .returning();
-
-      // Best-effort email; the invite is also visible in-app when they sign in.
-      void sendEmail({
-        to: input.email,
-        subject: `${p.displayName} wants you as their accountability contact`,
-        text: `${p.displayName} is building a daily habit on Steady and asked you to keep them honest. Sign in with this email address to accept: ${appUrl()}`,
-        html: emailShell(
-          `${p.displayName} asked you to keep them honest`,
-          `<p style="margin:0 0 20px;font-size:14px;color:#44444f;line-height:1.6;">They're committing to daily tasks on Steady. If you accept, you'll see only their high-level progress — a streak and a daily done/missed — never their tasks or notes. Nothing is shared until you accept.</p>
-           <a href="${appUrl()}" style="display:inline-block;background:#6C63FF;color:#fff;text-decoration:none;padding:12px 24px;border-radius:12px;font-size:14px;">Open Steady</a>
-           <p style="margin:16px 0 0;font-size:12px;color:#8e8e9a;">Sign in with ${input.email} to see the invite.</p>`,
-        ),
+      const row = await db.transaction(async tx => {
+        if (recipientFlowEnabled() && await isSuppressed(recipientKey(context.user.id, input.email), tx))
+          throw new ORPCError("FORBIDDEN", { message: "This contact has stopped emails from you. Choose someone else." });
+        const [existing] = await tx.select().from(schema.partners).where(eq(schema.partners.ownerId, context.user.id));
+        // A lost invite response retries the same relationship, never recreates it.
+        if (existing && input.requestId && existing.inviteToken === input.requestId && existing.partnerEmail === input.email) return existing;
+        if (existing && existing.status !== "declined") throw new ORPCError("CONFLICT", { message: "One accountability contact at a time — check the existing invitation first" });
+        if (existing) await tx.delete(schema.partners).where(eq(schema.partners.id, existing.id));
+        const [created] = await tx.insert(schema.partners).values({ ownerId: context.user.id, partnerEmail: input.email, inviteToken: input.requestId ?? randomUUID() }).returning();
+        return created;
       });
-
-      return { id: row.id, partnerEmail: row.partnerEmail, status: row.status };
+      const delivery = row.status === "invited" ? await deliverInvitation(context.user.id, row.id, row.inviteToken) : await invitationStatus(row.id);
+      return { id: row.id, partnerEmail: row.partnerEmail, status: row.status, delivery };
     }),
+
+  resend: authed.input(z.object({ partnerId: z.number().int(), requestId: z.string().uuid() })).handler(async ({ context, input }) => {
+    requireVerified(context.user);
+    return { delivery: await deliverInvitation(context.user.id, input.partnerId, input.requestId) };
+  }),
 
   /** Accept or decline an invite addressed to my email. Verified account required. */
   respond: authed
-    .input(z.object({ partnerId: z.number(), accept: z.boolean() }))
+    .input(z.object({ partnerId: z.number(), accept: z.boolean(), consentVersion: z.literal(CONSENT_VERSION).optional() }))
     .handler(async ({ context, input }) => {
       requireVerified(context.user);
       const [row] = await db
@@ -206,15 +194,11 @@ export const partners = {
       if (row.status !== "invited")
         throw new ORPCError("CONFLICT", { message: "Invite already answered" });
 
-      const [updated] = await db
-        .update(schema.partners)
-        .set({
-          status: input.accept ? "accepted" : "declined",
-          partnerUserId: input.accept ? context.user.id : null,
-          respondedAt: new Date(),
-        })
-        .where(eq(schema.partners.id, row.id))
-        .returning();
+      const updated = await db.transaction(async tx => {
+        const [fresh] = await tx.select().from(schema.partners).where(eq(schema.partners.id, row.id));
+        if (!fresh) throw new ORPCError("NOT_FOUND");
+        return decidePartner(tx, fresh, input.accept, input.consentVersion === CONSENT_VERSION, context.user.id);
+      });
 
       if (input.accept) {
         const [owner] = await db
@@ -225,16 +209,27 @@ export const partners = {
           void sendEmail({
             to: owner.email,
             subject: "Your accountability contact accepted",
-            text: `${context.user.name || context.user.email} accepted your Steady invite. They now see your high-level progress.`,
+            text: `${context.user.name || context.user.email} accepted your Steady invite. They can see your high-level progress. Email alerts require their separate consent.`,
             html: emailShell(
               "Accountability contact accepted",
-              `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${context.user.name || context.user.email}</b> accepted. They'll see your streak and daily status — never your tasks or notes. Show up.</p>`,
+              `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${escapeHtml(context.user.name || context.user.email)}</b> accepted. They'll see your streak and daily status — never your tasks or notes. Show up.</p>`,
             ),
           });
         }
       }
       return { status: updated.status };
     }),
+
+  stopEmails: authed.input(z.object({ partnerId: z.number().int() })).handler(async ({ context, input }) => {
+    requireVerified(context.user);
+    if (!recipientFlowEnabled()) throw new ORPCError("FORBIDDEN", { message: "Email preferences are temporarily unavailable." });
+    return db.transaction(async tx => {
+      const [row] = await tx.select().from(schema.partners).where(and(eq(schema.partners.id, input.partnerId), eq(schema.partners.partnerEmail, context.user.email.toLowerCase())));
+      if (!row) throw new ORPCError("NOT_FOUND");
+      await tx.insert(schema.recipientSuppressions).values({ recipientKey: recipientKey(row.ownerId, row.partnerEmail), stoppedAt: new Date() }).onConflictDoNothing();
+      return { ok: true };
+    });
+  }),
 
   /** Owner removes their partner / cancels a pending invite. */
   remove: authed.handler(async ({ context }) => {
@@ -296,7 +291,7 @@ export const partners = {
           text: `${context.user.name || "Your accountability contact"} noticed you missed yesterday. Fresh start today — one task, one line.`,
           html: emailShell(
             "Fresh start today",
-            `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${context.user.name || "Your accountability contact"}</b> noticed yesterday slipped. No guilt — just do one thing today and write one line.</p>`,
+            `<p style="margin:0;font-size:14px;color:#44444f;line-height:1.6;"><b>${escapeHtml(context.user.name || "Your accountability contact")}</b> noticed yesterday slipped. No guilt — just do one thing today and write one line.</p>`,
           ),
         });
       }

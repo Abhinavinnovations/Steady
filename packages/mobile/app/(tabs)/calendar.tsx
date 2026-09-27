@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { SteadyIcon } from "@/components/steady-icon";
 import { useRouter } from "expo-router";
 import { useProfile } from "@/queries/steady";
 import { useUpdateTodo, useToggleTodo, useRemoveTodo } from "@/queries/todos";
@@ -193,7 +193,7 @@ export default function CalendarScreen() {
               borderColor: colors.border,
             }}
           >
-            <Ionicons name="chevron-back" size={18} color={colors.foreground} />
+            <SteadyIcon name="chevron-back" size={18} color={colors.foreground} />
           </Pressable>
           <Text style={{ flex: 1, textAlign: "center", color: colors.foreground, fontFamily: Fonts.display, fontSize: 26 }}>
             {monthLabel(month)}
@@ -216,7 +216,7 @@ export default function CalendarScreen() {
               borderColor: colors.border,
             }}
           >
-            <Ionicons name="chevron-forward" size={18} color={colors.foreground} />
+            <SteadyIcon name="chevron-forward" size={18} color={colors.foreground} />
           </Pressable>
         </View>
 
@@ -422,7 +422,7 @@ export default function CalendarScreen() {
                       marginTop: 10,
                     }}
                   >
-                    <Ionicons name="repeat" size={16} color={colors.primary} />
+                    <SteadyIcon name="repeat" size={16} color={colors.primary} />
                     <Text
                       style={{
                         flex: 1,

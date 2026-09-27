@@ -7,6 +7,7 @@ import { AgentFeedback, RunableBadge } from "@runablehq/website-runtime";
 
 const UiOptions = lazy(() => import("./pages/ui-options"));
 const PaperStudies = lazy(() => import("./pages/paper-studies"));
+const Invitation = lazy(() => import("./pages/invitation"));
 
 function App() {
   return (
@@ -14,6 +15,9 @@ function App() {
       <Switch>
         <Route path="/" component={Index} />
         <Route path="/admin" component={Admin} />
+        <Route path="/invitation">
+          <Suspense fallback={<output>Opening invitation…</output>}><Invitation /></Suspense>
+        </Route>
         <Route path="/ui-options">
           <Suspense fallback={<output>Loading welcome studies…</output>}>
             <UiOptions />
