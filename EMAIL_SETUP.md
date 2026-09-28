@@ -1,14 +1,14 @@
 # Steady email setup
 
-## Current rollout, September 27, 2026
+## Current behavior, updated September 28, 2026
 
 The approved account-free flow is active using the existing free Gmail sender. New invitations contain a secure browser link to `/invitation`, with explicit Accept or Decline and a separate Stop emails link. Recipients need no Steady account or app installation. Opening a link never accepts an invitation.
 
 Only newly and explicitly consented contacts can receive automatic Challenge missed-day emails. Existing accepted contacts retain their status but are not enrolled automatically. No old invitations were resent, no legacy contacts were enrolled, and no historical alerts were replayed. No new live test email was sent during this rollout.
 
-Activation uses `RECIPIENT_FLOW_ENABLED=true`, `INVITATION_DELIVERY_ENABLED=true`, `MISS_ALERTS_ENABLED=true`, and `MISS_ALERTS_START_DATE=2026-09-28`. The link is the verified public HTTPS web/API entry at `https://steady-tpgwcgt-preview-4200.runable.site/invitation`, not the mobile `/profile` page. The cutoff is an eligible missed date in each owner's timezone, not a promised UTC send time. Only whole local days after acceptance qualify.
+The existing rollout uses `RECIPIENT_FLOW_ENABLED=true`, `INVITATION_DELIVERY_ENABLED=true`, `MISS_ALERTS_ENABLED=true`, and `MISS_ALERTS_START_DATE=2026-09-28`. On another environment, select an explicitly approved future rollout cutoff rather than copying this date. Set the public HTTPS web/API origin with the exact `/invitation` path, not the mobile `/profile` page. The cutoff is an eligible missed date in each owner's timezone, not a promised UTC send time. Only whole local days after acceptance qualify.
 
-The supplied September 27 message passed SPF, DKIM and DMARC. Gmail's exact spam reason was not exposed. Plain-text invitations and clear opt-out improve clarity but do not guarantee inbox placement. Provider acceptance is not proof of receipt. A separately authorized real recipient test is still needed.
+The user reported receiving an email on September 28. That confirms their report of receipt, but does not identify a particular transport attempt or prove the automatic missed-day trigger. No new email was sent during this documentation/GitHub update. Keep provider acceptance, inbox receipt, explicit recipient consent and trigger correctness as separate checks. Plain-text invitations and clear opt-out do not guarantee inbox placement.
 
 ## Root `.env` only
 
@@ -32,7 +32,7 @@ The September 25 standalone migration `packages/web/migrations/20260925_invitati
 
 The September 27 migration `packages/web/migrations/20260927_recipient_consent.sql` adds four tables: `recipient_links`, `recipient_consents`, `recipient_suppressions`, and `miss_alert_deliveries`. Before applying, the live database was read consistently, restored and reopened locally, and checked by row hashes, integrity and foreign keys. The migration was tested on a private disposable copy first. At commit and in an independent postcommit read, all 18 existing tables and 408 rows were unchanged; all four new tables were empty, integrity passed and foreign-key violations were zero. No backfill, reset, seed, or full schema push was used.
 
-Both migrations are already applied to the configured database. Do not rerun them. Private backup and verification records live outside the app under `/home/user/steady-review/recipient-flow-private`, with directory mode 0700 and files 0600. They contain account data and must never be publicly uploaded or delivered. For a different database, obtain approval, make a verified backup, inspect existing objects, and apply only the required standalone additive SQL.
+Both migrations are already applied to the configured database. Do not rerun them blindly. These files are standalone SQL in `packages/web/migrations/`, not part of Drizzle's generated `drizzle/` journal, so `bun run db:migrate` does not automatically apply them. Private backup and verification records stay outside the repository with restricted permissions. They contain account data and must never be publicly uploaded or delivered. For a different database, obtain approval, make a verified backup, inspect existing objects, and apply only the required standalone additive SQL. The September 28 active-Challenge addition uses existing task fields and needs no new schema migration.
 
 ## Recipient capabilities and consent
 
@@ -54,6 +54,8 @@ Gmail success requires final SMTP 250 and the intended accepted recipient. A gen
 - Resend uncertain attempts can replay only the exact original payload/key within the existing 23-hour safety window while Resend stays selected. Failed retries cannot erase prior uncertainty.
 - Missed-day checks run on Today traffic, at most once per 15 minutes per process, not a scheduled service. Quiet periods can skip alerts. There is no exact-time or guaranteed daily delivery.
 - Checks consider yesterday only, Challenge tasks only, an accepted relationship, versioned consent, rollout cutoff and no suppression. Timezone changes cannot make the reinterpreted acceptance day eligible. Completed, rest and future-task days do not send. Task names, notes and Basic tasks stay private.
+- A task added through the active commitment page is visible and completable immediately. Its `commitment-add:` request identity exempts its partial first day from missed-day email eligibility. The next full local day can qualify, still subject to consent and all other gates. An older unfinished eligible task can still cause that day's alert.
+- This is not a midnight job. A test message reaching an inbox does not establish delivery at 00:00 UTC or at the owner's local midnight.
 - Unique owner/date alert claims prevent duplicate attempts. The new ledger records `sending`, `accepted`, `failed`, `unknown` or `suppressed`, not invented inbox delivery. Failed/unknown alerts are not automatically retried. A process interruption can leave a `sending` claim requiring manual inspection; it is never replayed automatically. Old `miss_alerts` claims also block duplicate dates.
 
 Provider references: https://nodemailer.com/smtp, https://support.google.com/accounts/answer/185833, https://support.google.com/mail/answer/22839, https://support.google.com/mail/answer/81126, https://resend.com/docs/dashboard/emails/idempotency-keys.

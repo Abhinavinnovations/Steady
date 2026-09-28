@@ -1,5 +1,15 @@
 # Steady — White Paper / 2026
 
+## Consistency challenge link | approved September 28, 2026
+Rename the existing Open Challenge commitment action to Open consistency challenge on Today and Profile. On Today, place the action after the Consistent Tasks list, preceded by Want to challenge your consistency? Keep the existing Challenge-task visibility condition, destination, fonts, colors and task behavior. The broader copy proposal remains unapplied.
+
+## Add commitment task | approved September 28, 2026
+Add an obvious Add commitment task button on the active, confirmed Challenge page. Reuse AddTaskSheet with a fixed Challenge context and the existing title, optional focus duration and settings controls. Explicit save creates a new Challenge task today, immediately completable with the shared note flow; accountability starts on its next full local day. Retain no deletion, increase-only focus duration, contact consent, privacy and existing traffic-triggered email delivery. Preserve Basic task identities; keep Basic in Consistent Tasks and Challenge on the commitment page, not a combined list. Show loading/errors, retry the exact request after uncertainty, preserve dates and avoid live test writes/emails. No theme, font, managed config, auth or schema changes.
+
+## Direct commitment completion and start today | approved September 27, 2026
+Supersedes the prior instruction to preserve October 1 for the user's pictured commitment: the user explicitly selected September 27 start today. Move only the identified scheduled Challenge task into the current month, retaining its ID, title, mode, duration and settings; do not backdate history or alter Basic tasks or recipient consent. Other scheduled tasks remain scheduled unless their owner explicitly selects Start today.
+The saved commitment page uses the same TaskRow checkbox, completion note, undo and focus interactions as Consistent Tasks. Show daily progress directly here, no delete action, and obvious increase-only focus editing. Opening existing Challenge commitments must show their active month rather than automatically advance to next month or require re-acceptance of a contact. Preserve White Paper Light/Dark/Auto, fonts, SVGs and managed configuration. Keep setup staging isolated until confirmation.
+
 ## Commitment clarity, photographic Focus and clean typography | approved September 27, 2026
 The supplied commitment screenshot is October setup, scheduled for October 1, not Today. Preserve that date and existing tasks. Explain that scheduled tasks become completable on Today when their start date arrives; show Go to Today plus increase-only focus settings for locked tasks. Active Basic and Challenge use the same visible daily checkbox and note flow. Confirmed commitments cannot be deleted, swapped or have focus time removed/reduced. No change to consent, Basic privacy, or missed-day sweep timing.
 Restore the original task-specific Focus photos and original 45% dark scrim, white title/countdown, translucent stop control and original secondary white text opacities. Preserve timer logic, stored balances and route-local dark status bar. Do not revert the full timer file.

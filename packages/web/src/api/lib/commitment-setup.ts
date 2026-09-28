@@ -21,8 +21,11 @@ export async function challengeSetupState(userId: string) {
   const currentMonth = localMonth(p.timezone);
   const following = nextMonth(currentMonth);
   const locks = await db.select().from(s.commitments).where(and(eq(s.commitments.userId, userId), inArray(s.commitments.month, [currentMonth, following])));
-  const month = locks.some(c => c.month === currentMonth && c.confirmedAt) ? following : currentMonth;
   const list = await db.select().from(s.tasks).where(and(eq(s.tasks.userId, userId), inArray(s.tasks.month, [currentMonth, following]))).orderBy(s.tasks.id);
+  const currentLocked = locks.some(c => c.month === currentMonth && c.confirmedAt);
+  const hasActiveChallenge = currentLocked && list.some(t => t.month === currentMonth && t.mode === "challenge");
+  // Reopening a saved commitment is a daily task view, not automatically next month's setup.
+  const month = currentLocked && !hasActiveChallenge ? following : currentMonth;
   return {
     currentMonth, month, scheduled: month !== currentMonth,
     startDate: month === currentMonth ? localDate(p.timezone) : `${month}-01`,

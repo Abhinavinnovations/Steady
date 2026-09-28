@@ -32,6 +32,8 @@ export type TaskSheetValues = {
 
 type Props = {
   todayISO: string;
+  commitment?: boolean;
+  frozen?: boolean;
   monthLocked: boolean;
   onChallengeSetup: () => void;
   visible: boolean;
@@ -52,7 +54,7 @@ type Props = {
  * month. Schedule, category, and focus time stay editable any time.
  */
 export function AddTaskSheet({
-  todayISO, monthLocked, onChallengeSetup,
+  todayISO, monthLocked, onChallengeSetup, commitment = false, frozen = false,
   visible,
   submitting,
   error,
@@ -77,28 +79,28 @@ export function AddTaskSheet({
   // wipe in-progress edits whenever the parent re-renders (query refetch).
   const wasVisible = useRef(false);
   useEffect(() => {
-    if (visible && !wasVisible.current) {
+    if (visible && !wasVisible.current && !frozen) {
       setVoiceOpen(false);
       setTitle(editing?.title ?? "");
       setDuration(editing?.durationMinutes ?? null);
       setCategoryId(editing?.categoryId ?? null);
       setTime(editing?.scheduledTime ?? null);
       setReminder(editing?.reminderEnabled ?? false);
-      setMode(editing?.mode ?? "basic");
+      setMode(editing?.mode ?? (commitment ? "challenge" : "basic"));
       setShowModeInfo(false);
     }
     wasVisible.current = visible;
-  }, [visible, editing]);
+  }, [visible, editing, commitment, frozen]);
 
   const isEdit = !!editing;
-  const needsSetup = !isEdit && mode === "challenge" && monthLocked;
+  const needsSetup = !commitment && !isEdit && mode === "challenge" && monthLocked;
   const minimumDuration = isEdit && monthLocked ? editing.durationMinutes : null;
   const valid = !needsSetup && (isEdit || title.trim().length >= 2) && (duration ?? 0) >= (minimumDuration ?? 0);
   if (voiceOpen && visible) return <VoiceSheet visible todayISO={todayISO} context={mode === "challenge" ? "challenge-task" : "basic-task"} onClose={() => setVoiceOpen(false)}/>;
 
   return (
     <Modal
-      accessibilityLabel={isEdit ? "Task settings" : "Add a task"}
+      accessibilityLabel={isEdit ? "Task settings" : commitment ? "Add commitment task" : "Add a task"}
       visible={visible}
       transparent
       animationType="slide"
@@ -152,7 +154,7 @@ export function AddTaskSheet({
                     lineHeight: 40,
                   }}
                 >
-                  {isEdit ? editing.title : "Add a task"}
+                  {isEdit ? editing.title : commitment ? "Add commitment task" : "Add a task"}
                 </Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Close task editor" onPress={onClose} style={{ minWidth: 44, minHeight: 44, justifyContent: "center", alignItems: "center" }}>
@@ -165,7 +167,7 @@ export function AddTaskSheet({
               keyboardShouldPersistTaps="handled"
             >
               <View style={{ gap: 14 }}>
-                {!isEdit && <View style={{ alignItems: "flex-end" }}><VoiceEntryButton label="Add consistent tasks by voice" disabled={submitting || needsSetup} onPress={() => setVoiceOpen(true)}/></View>}
+                {!isEdit && !commitment && <View style={{ alignItems: "flex-end" }}><VoiceEntryButton label="Add consistent tasks by voice" disabled={submitting || needsSetup} onPress={() => setVoiceOpen(true)}/></View>}
                 {needsSetup && <View style={{ gap: 8 }}><Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 13 }}>This month is locked. Set up separate Challenge commitments for next month. Your Basic tasks stay private.</Text><SteadyButton title="Set up next month’s Challenge" onPress={onChallengeSetup}/></View>}
                 {!isEdit ? (
                   <TextInput
@@ -175,7 +177,7 @@ export function AddTaskSheet({
                     placeholder="e.g. Read 10 pages"
                     placeholderTextColor={colors.mutedForeground}
                     maxLength={80}
-                    editable={!submitting}
+                    editable={!submitting && !frozen}
                     style={{
                       borderWidth: 1,
                       borderColor: colors.inputBorder,
@@ -190,8 +192,9 @@ export function AddTaskSheet({
                   />
                 ) : null}
 
-                {/* Mode — per task */}
-                <View style={{ gap: 8 }}>
+                {commitment && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 13, lineHeight: 19 }}>Challenge only. Starts today; email accountability begins on the next full day. Consistent Tasks stay separate.</Text>}
+                {/* Mode is fixed for commitment additions. */}
+                {!commitment && <View style={{ gap: 8 }}>
                   <View
                     style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
                   >
@@ -277,9 +280,9 @@ export function AddTaskSheet({
                       contact — invite one in Profile and wait for acceptance.
                     </Text>
                   ) : null}
-                </View>
+                </View>}
 
-                <CategoryPicker value={categoryId} onChange={setCategoryId} />
+                <CategoryPicker value={categoryId} onChange={value => { if (!submitting && !frozen) setCategoryId(value); }} />
 
                 <View style={{ gap: 8 }}>
                   <View
@@ -302,11 +305,11 @@ export function AddTaskSheet({
                       Focus time (optional)
                     </Text>
                   </View>
-                  <DurationWheel value={duration} onChange={setDuration} minimum={minimumDuration} disabled={submitting} />
+                  <DurationWheel value={duration} onChange={setDuration} minimum={minimumDuration} disabled={submitting || frozen} />
                   {isEdit && monthLocked && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 18 }}>Committed focus time can only increase. The task cannot be deleted.</Text>}
                 </View>
 
-                <TimeField value={time} onChange={setTime} />
+                <TimeField value={time} onChange={value => { if (!submitting && !frozen) setTime(value); }} />
 
                 {time ? (
                   <View
@@ -330,6 +333,7 @@ export function AddTaskSheet({
                     <Switch
                       accessibilityLabel="Daily reminder"
                       value={reminder}
+                      disabled={submitting || frozen}
                       onValueChange={setReminder}
                       trackColor={{ true: colors.primary }}
                     />
@@ -365,9 +369,11 @@ export function AddTaskSheet({
                   title={
                     submitting
                       ? "Saving..."
-                      : isEdit
+                      : frozen
+                        ? "Retry unchanged"
+                        : isEdit
                         ? "Save changes"
-                        : "Add to this month"
+                        : commitment ? "Add commitment task" : "Add to this month"
                   }
                   disabled={!valid || submitting}
                   onPress={() =>
@@ -392,7 +398,7 @@ export function AddTaskSheet({
                 >
                   {isEdit
                     ? "Schedule and category stay editable. A committed task cannot be deleted or have its focus time reduced."
-                    : "Counts from today. Once committed, tasks cannot be deleted or reduced."}
+                    : commitment ? "Saving commits this task immediately. It cannot be deleted, and focus time can only increase." : "Counts from today. Once committed, tasks cannot be deleted or reduced."}
                 </Text>
               </View>
             </ScrollView>

@@ -8,6 +8,8 @@ import { localDate, localMonth } from "../lib/dates";
 import { createFingerprint, replayCreate } from "../lib/create-request";
 import { requireChallengeContact } from "../lib/challenge-contact";
 import { challengeSetupState, confirmSetup, setupInput } from "../lib/commitment-setup";
+import { startCommitmentInput, startCommitmentToday } from "../lib/start-commitment";
+import { addCommitmentInput, addCommitmentTask } from "../lib/add-commitment";
 
 async function requireProfile(userId: string, reader: Pick<typeof db, "select"> = db) {
   const [p] = await reader
@@ -33,7 +35,9 @@ async function getCommitment(userId: string, month: string, reader: Pick<typeof 
 }
 
 export const tasks = {
+  addCommitment: authed.input(addCommitmentInput).handler(({ context, input }) => addCommitmentTask(context.user.id, input)),
   setupState: authed.handler(({ context }) => challengeSetupState(context.user.id)),
+  startToday: authed.input(startCommitmentInput).handler(({ context, input }) => startCommitmentToday(context.user.id, input)),
   confirmSetup: authed.input(setupInput).handler(({ context, input }) => confirmSetup(context.user.id, input)),
   /** Current month's commitment + task list. */
   current: authed.handler(async ({ context }) => {

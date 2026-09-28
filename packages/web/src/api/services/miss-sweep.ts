@@ -3,6 +3,7 @@ import { db } from "../database";
 import * as s from "../database/schema";
 import { localDate, shiftDay } from "../lib/dates";
 import { computeDayStatuses } from "../lib/streak";
+import { eligibleForCommitmentEmail } from "../lib/add-commitment";
 import { sendEmail } from "./email";
 import { CONSENT_VERSION, createRecipientLink, isSuppressed, recipientBaseUrl, recipientFlowEnabled, recipientKey } from "./recipient-consent";
 
@@ -44,6 +45,13 @@ async function sweepOwner(userId: string) {
   if (old) return;
   const { statuses } = await computeDayStatuses(userId, p.timezone, 400, "challenge");
   if (statuses.get(yesterday) !== "missed") return;
+  const dayTasks = await db.select().from(s.tasks).where(and(eq(s.tasks.userId, userId), eq(s.tasks.mode, "challenge"), eq(s.tasks.month, yesterday.slice(0, 7))));
+  const eligible = dayTasks.filter(task => eligibleForCommitmentEmail(task, yesterday));
+  const completed = await db.select({ taskId: s.completions.taskId }).from(s.completions).where(and(eq(s.completions.userId, userId), eq(s.completions.localDate, yesterday)));
+  const done = new Set(completed.map(row => row.taskId));
+  // A newly added task is immediately completable, but its partial first day
+  // must never cause an email. Older unfinished tasks still count normally.
+  if (!eligible.some(task => !done.has(task.id))) return;
 
   const claim = await db.transaction(async tx => {
     const [fresh] = await tx.select().from(s.partners).where(eq(s.partners.id, partner.id));

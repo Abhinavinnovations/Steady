@@ -197,7 +197,7 @@ export default function ProfileScreen() {
                 {scheduledMonth ? ` Challenge scheduled for ${scheduledLabel}.` : ""}
               </Text>
               {setup.isError && <SteadyButton title="Retry scheduled commitments" variant="ghost" onPress={() => void setup.refetch()}/>}
-              <SteadyButton title="Go to Challenge mode" variant="outline" onPress={() => router.push("/onboarding?entry=profile")}/>
+              <SteadyButton title={hasChallenge ? "Open consistency challenge" : scheduledMonth ? "View scheduled commitment" : "Go to Challenge mode"} variant="outline" onPress={() => router.push("/onboarding?entry=profile")}/>
             </View>
 
             {/* Appearance */}

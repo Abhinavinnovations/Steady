@@ -307,7 +307,7 @@ export default function TodayScreen() {
       : "Do one thing, write one line.";
 
   const catList = categories.data ?? [];
-  const visibleTasks = d.tasks.filter(t => (catFilter === "all" || t.categoryId === catFilter) && (!flagOnly || t.flagged)).sort((a,b)=>Number(b.flagged)-Number(a.flagged));
+  const visibleTasks = d.tasks.filter(t => t.mode === "basic" && (catFilter === "all" || t.categoryId === catFilter) && (!flagOnly || t.flagged)).sort((a,b)=>Number(b.flagged)-Number(a.flagged));
   const todoList = todos.data?.todos ?? [];
   const visibleTodos = todoList.filter(t => (catFilter === "all" || t.categoryId === catFilter) && (!flagOnly || t.flagged));
   function focus(t: TodayTask | Todo, todo: boolean) {
@@ -586,7 +586,7 @@ export default function TodayScreen() {
             Consistent Tasks
           </Text>
         </View>
-        {d.confirmed && d.tasks.length > 0 && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>Tap the circle to mark a task complete and add your daily note. Challenge tasks work the same way, with accountability for missed days.</Text>}
+        {d.confirmed && d.tasks.some(t => t.mode === "basic") && <Text style={{ color: colors.mutedForeground, fontFamily: Fonts.sans, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>Tap the circle to mark a task complete and add your daily note. Consistent Tasks stay private.</Text>}
         <View style={{ gap: 10 }}>
           {visibleTasks.map(t => <TaskRow key={t.id} title={t.title} focusIdentity={t.durationMinutes ? {kind:"task",id:t.id,day:d.localDate,durationMinutes:t.durationMinutes} : undefined} consistent done={t.completed} flagged={t.flagged}
             subtitle={[t.scheduledTime ? formatTime12(t.scheduledTime) : null, t.durationMinutes ? formatDuration(t.durationMinutes) : null, catName(t.categoryId),t.mode === "challenge" ? "Challenge" : "Basic"].filter(Boolean).join(" · ")}
@@ -647,6 +647,13 @@ export default function TodayScreen() {
             </Pressable>
           ) : null}
         </View>
+
+        {d.tasks.some(t => t.mode === "challenge") && (
+          <View style={{ marginTop: 24, gap: 12 }}>
+            <Text style={{ color: colors.foreground, fontFamily: Fonts.medium, fontSize: 16, lineHeight: 23 }}>Want to challenge your consistency?</Text>
+            <SteadyButton title="Open consistency challenge" variant="outline" onPress={() => router.push("/onboarding?entry=profile")}/>
+          </View>
+        )}
 
         {/* Temporary to-dos — casual, deletable, no streak impact */}
         <View

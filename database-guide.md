@@ -1,130 +1,109 @@
-# Steady — Database Guide
+# Steady database guide
 
-Short version: **the database is already connected and live.** Every signup, task,
-note, streak and invite you've seen in the app is real data in a hosted database —
-not mock data. This guide maps your Supabase plan onto what exists, and shows you
-how to manage it.
+Steady uses **Turso/libSQL with Drizzle**, accessed through the server. Mobile and web clients call typed oRPC procedures; they do not receive database credentials.
 
-## What you're actually running
+This guide describes the current code, not a guarantee about another clone's provisioned database. Keep production, development and disposable test databases separate.
 
-| Your plan | What's live |
-|---|---|
-| Supabase Postgres | **Turso** (hosted SQLite/libSQL) via **Drizzle ORM** — provisioned automatically, free tier, $0 |
-| Email auth | **better-auth** email/password, already wired on mobile + web |
-| Row-level security | Server-side equivalent (see below) |
-| Free-tier hosting | Already the setup — API + DB + app all on free tiers |
+## Schema map
 
-Connection lives in the root `.env` (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`).
-Never commit or share these; deployments ship the same `.env`.
+Application schema: [`packages/web/src/api/database/schema.ts`](./packages/web/src/api/database/schema.ts). Authentication schema: [`auth-schema.ts`](./packages/web/src/api/database/auth-schema.ts).
 
-Why not Supabase? This managed project keeps DB, API and auth in one deployable
-unit — swapping in Supabase would add a second service to manage without adding
-capability at this scale. Because Drizzle is the ORM, the schema is portable to
-Postgres later if you ever outgrow Turso's free tier (500 DBs, 9GB storage —
-years away at V1 scale).
+| Tables | Purpose |
+| --- | --- |
+| `user`, `session`, `account`, `verification` | Better Auth accounts, sessions and verification |
+| `profiles` | Display name, timezone, onboarding and leaderboard preference |
+| `commitments` | One user/month plan; `confirmedAt` locks the commitment |
+| `tasks` | Monthly Basic/Challenge tasks, start date, duration, category, schedule and retry identity |
+| `completions` | Task completion note, unique per task/local date |
+| `categories` | User-owned labels for tasks and to-dos |
+| `todos`, `todo_completions` | Casual tasks, recurrence and occurrence completion |
+| `partners`, `nudges` | Accountability relationships and limited nudges |
+| `invitation_deliveries` | Frozen invitation attempt and delivery outcome ledger |
+| `recipient_links` | Hashed public invitation/stop capabilities |
+| `recipient_consents` | Explicit, versioned recipient consent and eligibility start |
+| `recipient_suppressions` | Owner/recipient suppression that survives relationship removal |
+| `miss_alert_deliveries` | Deduplicated missed-date alert attempts and transport outcomes |
+| `accountability_contacts`, `miss_alerts` | Retained legacy contact/alert data; old claims also prevent duplicate alerts |
+| `badges` | Awarded achievement records |
 
-## Your data model vs. what exists
+Streaks and leaderboard scores are calculated from history, not maintained as a separate streak snapshot table. Do not infer that an empty email ledger means a user had no missed days: consent, eligibility and traffic-triggered checks also affect delivery.
 
-Your proposed tables, mapped (schema file: `packages/web/src/api/database/schema.ts`):
+## Rules worth preserving
 
-| You proposed | Live table | Notes |
-|---|---|---|
-| users | `user` (better-auth) + `profiles` | timezone (anchors the "local day"), mode basic/challenge, display name, leaderboard opt-out |
-| monthly task plan + lock | `commitments` | one row per user per `YYYY-MM`; `confirmedAt` = the lock. Confirmed months: tasks can be added, never removed |
-| tasks (title, target, reminder, active) | `tasks` | month-scoped, optional `durationMinutes` (timer), `startDate` so mid-month adds don't create retroactive misses |
-| daily completions with notes | `completions` | note is **mandatory** (min 10 chars) — the core loop rule; unique per task per local date |
-| streak snapshots | computed live (`lib/streak.ts`) | intentionally not a table — at V1 scale computing on read is instant and can't go stale. Add snapshots only if leaderboard queries get slow (thousands of users) |
-| leaderboard views | live queries (`routes/leaderboard.ts`) | grouped by mode + task-count band; same reasoning — precompute later, not now |
-| partner invites | `partners` + `nudges` | invite by email, accept/decline, one gentle nudge per missed day |
-| — (you didn't have this) | `accountability_contacts` + `miss_alerts` | verified external email that gets told when you miss a day |
-| — | `badges` | lazy-awarded, never revoked |
+- Dates and month boundaries use the profile's timezone. Operational timestamps can be recorded in UTC, but a local missed date is not a UTC delivery schedule.
+- The monthly task cap is 10 across Basic and Challenge. Locked tasks cannot be removed, and their focus duration cannot be reduced.
+- New active-Challenge tasks can be completed today. `commitment-add:` request identities persist their first-partial-day email exemption in the existing task request ledger.
+- A task's `createRequestId` and fingerprint make exact retries safe. Do not regenerate those fields to force a retry, or strip their namespace during a data cleanup.
+- Explicit scheduled-commitment activation preserves task identity and history. Merely viewing a future commitment does not activate it.
+- Completion notes belong to the owner. Accountability emails share a high-level missed-day status, not titles, notes or Basic tasks.
+- Consent and suppression are distinct from accepted relationship status. An accepted legacy relationship does not authorize new missed-day email enrollment.
 
-Your phased build order (screens → auth → lock → today+notes → streaks → leaderboard
-→ partner → badges) is essentially the shipped feature list. You're past the plan.
+Implementation references: [`add-commitment.ts`](./packages/web/src/api/lib/add-commitment.ts), [`start-commitment.ts`](./packages/web/src/api/lib/start-commitment.ts), [`miss-sweep.ts`](./packages/web/src/api/services/miss-sweep.ts), and [email setup](./EMAIL_SETUP.md).
 
-## The RLS question
+## Authorization boundaries
 
-Supabase needs row-level security because the client talks to the database
-directly. Here the client **never** touches the DB — everything goes through
-typed oRPC procedures in `packages/web/src/api/routes/`, and every procedure
-runs behind the auth middleware (`middleware/auth.ts`) which scopes queries to
-the session's user id. A partner sees only minimal status after accepting —
-enforced in `routes/partners.ts`, same guarantee as RLS, one layer up.
+User procedures use session authentication and owner filters. Public recipient endpoints use limited capabilities for inspecting an invitation and explicitly responding. Admin procedures require a separate `ADMIN_KEY` and intentionally allow privileged SQL.
 
-Rule to keep: **every new query in a route must filter by `context.user.id`.**
-That's your RLS.
+These are **application-layer authorization controls**, not SQLite row-level security. New endpoints must select the appropriate authorization boundary and enforce ownership of every referenced row. Do not assume that importing an oRPC router automatically makes every procedure authenticated.
 
-## How to manage it
+## Connecting safely
 
-**Change the schema:** edit `schema.ts`, then from `packages/web`:
+Set `DATABASE_URL` and `DATABASE_AUTH_TOKEN` in the single root `.env`. The managed client reads that configuration. Never put database access tokens in Expo public settings or browser code.
 
-```bash
-bun run db:push        # sync schema to the live DB (fine for new tables)
-bun run db:generate    # or: generate a migration file
-bun run db:migrate     # and apply it (safer for altering existing tables)
-```
+Before running tests or scripts:
 
-Caution: `db:push` prompts interactively when altering columns on tables with
-data — prefer generate/migrate for those.
+1. Confirm whether the database is disposable or live, without printing its credentials.
+2. Use isolated fixtures for regression tests. Do not create real users or send real emails merely to validate a UI change.
+3. Keep private backups outside the repository with restricted permissions.
+4. Start with read-only inspection and obtain explicit authorization for live mutations.
 
-**Inspect data** with a quick Bun script from the repo root:
+## Migration workflow
 
-```bash
-bun --env-file=.env -e '
-import { createClient } from "@libsql/client";
-const db = createClient({ url: process.env.DATABASE_URL!, authToken: process.env.DATABASE_AUTH_TOKEN });
-const r = await db.execute("SELECT id, title, month, duration_minutes FROM tasks ORDER BY id DESC LIMIT 10");
-console.table(r.rows);'
-```
+### Existing populated database
 
-**Add a feature end-to-end:** table in `schema.ts` → procedure file in
-`src/api/routes/` → compose into `src/api/index.ts` → mobile hook in
-`packages/mobile/queries/` → screen. That's the whole pipeline.
+1. Inspect the current schema and applied migration state.
+2. Make a consistent backup, restore it privately and verify integrity, foreign keys and row counts or hashes.
+3. Test the exact proposed SQL on the restored copy.
+4. Review destructive operations and changes to existing rows.
+5. Apply only the needed migration through an authorized database workflow.
+6. Independently recheck schema, integrity and preserved data after commit.
 
-## What to phase in later (agreeing with your "start small")
+Never treat `db:push` as a harmless inspection command. It changes the configured database.
 
-- Voice-to-text notes: device-native speech via `expo-speech-recognition` — typed notes now, exactly as you said
-- Push reminders at each task's reminder time (expo-notifications, free)
-- Streak/leaderboard snapshot tables — only when live queries measurably slow down
-- Email sending is wired (Resend, free tier 100/day) but needs `RESEND_API_KEY` in `.env` — currently emails log-and-skip
+### Drizzle-generated migrations
 
-## Admin console (browse + run SQL from your browser)
-
-Open **https://steady-7wy0t47-preview-4200.runable.site/admin** and paste the admin key
-(it lives in the root `.env` as `ADMIN_KEY` — not printed here since this repo is public).
-
-What you get:
-
-- **Tables sidebar** — every table with a live row count
-- **Row browser** — click a table, newest rows first, paginated 50 at a time (‹ › buttons)
-- **Run SQL** — full control: `SELECT`, `UPDATE`, `DELETE`, `ALTER` all work. Results cap at 500 rows; each run shows rows returned, rows affected, and query time. **There is no undo** — it's the live database, so read before you write
-- **Lock console** — clears the key from that browser (it's stored locally, never in a URL)
-
-The key lives in the root `.env` as `ADMIN_KEY`. Rotate it there any time; the
-console asks for the new one on next visit. The console works in production too
-(same `/admin` path once deployed).
-
-When to use which: the **console** for looking at data and quick fixes; the
-**Bun script + db:push workflow** above for schema changes and anything you want
-in version control.
-
-## GitHub workflow (co-managing the code)
-
-The repo lives at **https://github.com/Abhinavinnovations/steady**.
-
-Your side:
+From `packages/web`, using a deliberately selected environment:
 
 ```bash
-git clone https://github.com/Abhinavinnovations/steady.git
-cd steady && bun install
-# edit whatever you like
-git add -A && git commit -m "what changed" && git push
+bun run db:generate   # Generate migration artifacts for review
+bun run db:migrate    # Apply the generated migration journal to the configured database
 ```
 
-The real `.env` (DB credentials, admin key) is git-ignored on purpose — copy
-`.env.template` to `.env` and I can share values whenever you want to run it
-fully outside Runable.
+The output directory configured by `drizzle.config.ts` is `./drizzle`. For a new disposable database, `bun run db:push` can synchronize the current schema after you have confirmed the target. It is not a substitute for a reviewed production migration.
 
-My side: after you push, tell me in chat and I run `git pull` before touching
-anything. After each round I finish, I commit and push too — so `git pull`
-before you start editing, and we won't collide.
+### Standalone additive migrations
+
+These reviewed SQL files are in `packages/web/migrations/`, not the generated Drizzle journal:
+
+- `20260925_invitation_deliveries.sql`
+- `20260927_recipient_consent.sql`
+
+They were already applied to the existing configured Steady database during the earlier rollout. Do not replay them blindly. On another database, inspect existing objects and apply only missing changes after the backup/review procedure. `bun run db:migrate` does not automatically discover these standalone files.
+
+The September 28 active-Challenge addition uses existing task fields and requires no additional schema migration.
+
+## Admin console
+
+Open `/admin` on your actual web/API origin. Set a strong `ADMIN_KEY` in the root `.env`; without it the console refuses access. Do not publish the key in documentation, URLs or screenshots.
+
+The console can list tables, browse rows and execute SQL, including writes and schema changes. Query results are capped at 500 rows, but that is **not a write limit**. There is no undo. Prefer read-only queries and review mutations before execution.
+
+The browser stores the key locally for subsequent requests. Use **Lock console** when finished and avoid shared or untrusted browsers. The key is sent to the API for authorization; it is not confined to local storage.
+
+## GitHub and deployment
+
+Repository: [Abhinavinnovations/Steady](https://github.com/Abhinavinnovations/Steady).
+
+Fetch and review incoming changes before committing. Preserve managed files, assigned ports and Expo identity. Commit source, reviewed migration SQL and safe documentation, not `.env`, database files, backups, recipient links or local test evidence.
+
+A GitHub push updates source control only. It does not apply SQL, migrate accounts, publish a mobile build or activate an email provider. Publishing and environment configuration are separate operations.

@@ -9,6 +9,16 @@ export function useBeginSetup() {
   const qc = useQueryClient();
   return useMutation(orpc.profile.beginSetup.mutationOptions({ onSuccess: () => { void qc.invalidateQueries(); } }));
 }
+export function useAddCommitmentTask() {
+  const qc = useQueryClient();
+  return useMutation(orpc.tasks.addCommitment.mutationOptions({ onSuccess: () => qc.invalidateQueries() }));
+}
+
+export function useStartCommitmentToday() {
+  const qc = useQueryClient();
+  return useMutation(orpc.tasks.startToday.mutationOptions({ onSuccess: () => qc.invalidateQueries() }));
+}
+
 export function useConfirmSetup() {
   const qc = useQueryClient();
   return useMutation(orpc.tasks.confirmSetup.mutationOptions({ onSuccess: () => { void qc.invalidateQueries(); } }));
