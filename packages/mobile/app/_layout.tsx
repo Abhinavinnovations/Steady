@@ -3,8 +3,9 @@
 // To switch navigation, replace only the <Slot /> line with <Stack /> or <Tabs />.
 import { useEffect, useState } from "react";
 import { View, ActivityIndicator, Text, Pressable, Platform } from "react-native";
-import { loadAsync, getLoadedFonts } from "expo-font";
-import { appFonts, appFontNames } from "../constants/font-assets";
+import { getLoadedFonts } from "expo-font";
+import { appFontNames } from "../constants/font-assets";
+import { loadAppFonts } from "../lib/load-app-fonts";
 import { Colors } from "../constants/theme";
 import { useSegments } from "expo-router";
 import { verifyFontReadiness, safeFontError } from "../lib/font-readiness";
@@ -33,8 +34,9 @@ function FontGate() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    // A successful hook/cache result alone cannot verify the native registry.
-    void verifyFontReadiness(() => loadAsync(appFonts), getLoadedFonts, appFontNames)
+    // Verify remote font bytes before registration: native Android accepts even
+    // redirect HTML as a typeface and can otherwise report a false success.
+    void verifyFontReadiness(loadAppFonts, getLoadedFonts, appFontNames)
       .then(() => { if (active) setFontsReady(true); })
       .catch(error => { if (active) setFontError(safeFontError(error)); });
     return () => { active = false; };

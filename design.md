@@ -1,5 +1,9 @@
 # Steady — White Paper / 2026
 
+## Android font transport repair | approved October 1, 2026
+The fresh device screenshot supersedes earlier visual acceptance. Live Android inspection established that all five Expo asset-cache font files contained a 167-byte HTML 301 response, not TTF data. Native registration still succeeded, resulting in system sans-serif fallback. Direct HTTPS retrieval on the same device returned the original Caslon checksum and distinct serif metrics.
+Repair native remote-font loading only: use HTTPS for Runable preview asset URLs, a separate content-addressed font cache, and original-file size/checksum verification before expo-font registration. Reject corrupt downloads through the existing Retry screen. Keep bundled local-font handling and browser loading, original TTF assets, all font names/styles/sizes, layout, SVG icons and Light/Dark/Auto unchanged. No account/task/API/database/auth changes, managed configuration changes, publication or Git push.
+
 ## Consistency challenge link | approved September 28, 2026
 Rename the existing Open Challenge commitment action to Open consistency challenge on Today and Profile. On Today, place the action after the Consistent Tasks list, preceded by Want to challenge your consistency? Keep the existing Challenge-task visibility condition, destination, fonts, colors and task behavior. The broader copy proposal remains unapplied.
 
